@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.admin.document_status import DocumentStatus
+from app.integrations.dify.schemas import DifyJobResponse
 from app.services.admin_service import AdminDocumentService
 
 
@@ -123,6 +124,15 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
 
     monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
     monkeypatch.setattr(service.document_repo, "update_status", lambda *args, **kwargs: updated)
+    monkeypatch.setattr(
+        service.dify_client,
+        "enqueue_document_index",
+        lambda *_args, **_kwargs: DifyJobResponse(
+            job_id="dify-job-1",
+            status="queued",
+            message="queued from test",
+        ),
+    )
 
     record_id = uuid4()
     monkeypatch.setattr(
@@ -136,4 +146,5 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
     assert payload["target_system"] == "dify"
     assert payload["status"] == DocumentStatus.INDEXED.value
     assert payload["sync_record_id"] == record_id
+    assert payload["message"] == "queued from test"
     assert db.commits == 1

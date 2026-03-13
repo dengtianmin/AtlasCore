@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.admin.document_status import DocumentStatus
 from app.admin.storage import DocumentStorage
+from app.integrations.dify import DifyDocumentIndexRequest, get_dify_client
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.sync_repo import SyncRecordRepository
 
@@ -14,6 +15,7 @@ class AdminDocumentService:
         self.document_repo = DocumentRepository()
         self.sync_repo = SyncRecordRepository()
         self.storage = DocumentStorage()
+        self.dify_client = get_dify_client()
 
     def upload_document(self, db: Session, *, upload: UploadFile, admin_user_id: UUID) -> dict:
         source_uri, file_size = self.storage.save(upload)
@@ -80,6 +82,13 @@ class AdminDocumentService:
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
+        dify_job = self.dify_client.enqueue_document_index(
+            DifyDocumentIndexRequest(
+                document_id=str(doc.id),
+                title=doc.title,
+                source_uri=doc.source_uri,
+            )
+        )
         updated_doc = self.document_repo.update_status(
             db,
             doc=doc,
@@ -89,7 +98,8 @@ class AdminDocumentService:
             db,
             document_id=doc.id,
             target_system="dify",
-            sync_status="queued",
+            sync_status=dify_job.status,
+            external_id=dify_job.job_id,
         )
         db.commit()
         return {
@@ -97,7 +107,7 @@ class AdminDocumentService:
             "status": updated_doc.status,
             "sync_record_id": sync_record.id,
             "target_system": "dify",
-            "message": "Dify indexing has been queued (placeholder, no external call yet)",
+            "message": dify_job.message,
         }
 
     def _to_payload(self, doc) -> dict:
