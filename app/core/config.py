@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str | None = None
     DATABASE_URL: str | None = None
     NEO4J_URI: str | None = None
+    NEO4J_DATABASE: str = "neo4j"
     NEO4J_USERNAME: str | None = None
     NEO4J_PASSWORD: str | None = None
     DIFY_BASE_URL: str | None = None
