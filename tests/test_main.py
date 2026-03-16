@@ -18,6 +18,7 @@ def test_create_app_uses_settings_metadata(monkeypatch):
 def test_health_route_registered(app_instance):
     route_paths = {route.path for route in app_instance.routes}
     assert "/health" in route_paths
+    assert "/health/ready" in route_paths
 
 
 def test_exception_handlers_registered(app_instance):
