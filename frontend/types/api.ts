@@ -76,6 +76,47 @@ export interface GraphNeighbors {
   edges: GraphEdge[];
 }
 
+export interface GraphSummary {
+  loaded: boolean;
+  node_count: number;
+  edge_count: number;
+  current_version: string | null;
+  sqlite_path: string;
+  last_loaded_at: string | null;
+}
+
+export interface GraphAdminStatus extends GraphSummary {
+  enabled: boolean;
+  import_dir: string;
+  export_dir: string;
+  import_dir_exists: boolean;
+  export_dir_exists: boolean;
+  instance_local_path: string;
+}
+
+export interface GraphFileOperation {
+  record_id: string;
+  filename: string;
+  file_path: string;
+  download_url: string | null;
+  version: string | null;
+  loaded: boolean;
+  node_count: number;
+  edge_count: number;
+  current_version: string | null;
+  sqlite_path: string;
+  last_loaded_at: string | null;
+}
+
+export interface GraphReload {
+  loaded: boolean;
+  node_count: number;
+  edge_count: number;
+  current_version: string | null;
+  sqlite_path: string;
+  last_loaded_at: string | null;
+}
+
 export interface DocumentRecord {
   id: string;
   filename: string;

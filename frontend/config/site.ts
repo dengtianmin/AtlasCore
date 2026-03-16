@@ -4,6 +4,7 @@ export const siteConfig = {
   adminNav: [
     { href: "/admin", label: "总览" },
     { href: "/admin/documents", label: "文档管理" },
+    { href: "/admin/graph", label: "图管理" },
     { href: "/admin/logs", label: "问答日志" },
     { href: "/admin/exports", label: "导出管理" }
   ],
