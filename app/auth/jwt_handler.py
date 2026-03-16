@@ -4,6 +4,7 @@ from typing import Any
 import jwt
 
 from app.core.config import settings
+from app.core.secrets import SecretResolutionError
 
 JWT_ALGORITHM = "HS256"
 DEFAULT_EXPIRES_MINUTES = 60
@@ -14,10 +15,12 @@ class TokenDecodeError(Exception):
 
 
 def _resolve_jwt_secret() -> str:
-    if settings.JWT_SECRET:
-        return settings.JWT_SECRET
-    if settings.APP_ENV in {"development", "test"}:
-        return "atlascore-dev-insecure-secret"
+    try:
+        resolved_secret = settings.resolved_jwt_secret
+    except SecretResolutionError as exc:
+        raise TokenDecodeError("JWT secret is not configured") from exc
+    if resolved_secret:
+        return resolved_secret
     raise TokenDecodeError("JWT secret is not configured")
 
 

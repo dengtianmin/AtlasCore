@@ -18,13 +18,14 @@ async def lifespan(_: FastAPI):
     initialize_database()
     if settings.GRAPH_ENABLED:
         initialize_graph_database()
-    if settings.INITIAL_ADMIN_USERNAME and settings.INITIAL_ADMIN_PASSWORD:
+    admin_password = settings.resolved_initial_admin_password
+    if settings.INITIAL_ADMIN_USERNAME and admin_password:
         session = get_session_factory()()
         try:
             AuthService().ensure_admin_account(
                 session,
                 username=settings.INITIAL_ADMIN_USERNAME,
-                password=settings.INITIAL_ADMIN_PASSWORD,
+                password=admin_password,
             )
         finally:
             session.close()

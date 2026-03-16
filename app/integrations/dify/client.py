@@ -26,7 +26,7 @@ class DifyClient:
     """
 
     def is_enabled(self) -> bool:
-        return bool(settings.DIFY_BASE_URL and settings.DIFY_API_KEY)
+        return bool(settings.DIFY_BASE_URL and settings.resolved_dify_api_key)
 
     def enqueue_document_index(self, payload: DifyDocumentIndexRequest) -> DifyJobResponse:
         if not self.is_enabled():

@@ -41,7 +41,17 @@ def test_decode_invalid_token_raises(monkeypatch):
 
 def test_production_without_secret_rejected(monkeypatch):
     monkeypatch.setattr(settings, "JWT_SECRET", None)
+    monkeypatch.setattr(settings, "JWT_SECRET_NAME", None)
     monkeypatch.setattr(settings, "APP_ENV", "production")
+
+    with pytest.raises(TokenDecodeError, match="JWT secret is not configured"):
+        create_access_token(subject="abc", username="admin-user", roles=["admin"])
+
+
+def test_test_environment_without_secret_rejected(monkeypatch):
+    monkeypatch.setattr(settings, "JWT_SECRET", None)
+    monkeypatch.setattr(settings, "JWT_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "APP_ENV", "test")
 
     with pytest.raises(TokenDecodeError, match="JWT secret is not configured"):
         create_access_token(subject="abc", username="admin-user", roles=["admin"])

@@ -1,8 +1,10 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from app.core.config import Settings
+from app.core.secrets import SecretResolutionError
 
 
 def test_settings_defaults(monkeypatch):
@@ -21,13 +23,25 @@ def test_settings_defaults(monkeypatch):
     monkeypatch.delenv("GRAPH_IMPORT_DIR", raising=False)
     monkeypatch.delenv("GRAPH_SNAPSHOT_PATH", raising=False)
     monkeypatch.delenv("GRAPH_INSTANCE_LOCAL_PATH", raising=False)
+    monkeypatch.delenv("KEY_VAULT_ENABLED", raising=False)
+    monkeypatch.delenv("KEY_VAULT_URL", raising=False)
+    monkeypatch.delenv("AZURE_KEY_VAULT_URL", raising=False)
+    monkeypatch.delenv("KEY_VAULT_USE_MANAGED_IDENTITY", raising=False)
+    monkeypatch.delenv("KEY_VAULT_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("JWT_SECRET_NAME", raising=False)
     monkeypatch.delenv("INITIAL_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("INITIAL_ADMIN_PASSWORD_SECRET_NAME", raising=False)
+    monkeypatch.delenv("ADMIN_AUTH_SECRET", raising=False)
+    monkeypatch.delenv("ADMIN_AUTH_SECRET_NAME", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH_SECRET_NAME", raising=False)
     monkeypatch.delenv("NEO4J_URI", raising=False)
     monkeypatch.delenv("NEO4J_USERNAME", raising=False)
     monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
     monkeypatch.delenv("DIFY_BASE_URL", raising=False)
     monkeypatch.delenv("DIFY_API_KEY", raising=False)
+    monkeypatch.delenv("DIFY_API_KEY_SECRET_NAME", raising=False)
 
     settings = Settings()
 
@@ -47,8 +61,15 @@ def test_settings_defaults(monkeypatch):
     assert settings.GRAPH_EXPORT_DIR == "./data/graph_exports"
     assert settings.GRAPH_IMPORT_DIR == "./data/graph_imports"
     assert settings.graph_instance_path.name == "atlascore_graph.db"
+    assert settings.KEY_VAULT_ENABLED is False
+    assert settings.KEY_VAULT_URL is None
+    assert settings.AZURE_KEY_VAULT_URL is None
+    assert settings.KEY_VAULT_USE_MANAGED_IDENTITY is False
     assert settings.JWT_SECRET is None
+    assert settings.JWT_SECRET_NAME is None
     assert settings.INITIAL_ADMIN_PASSWORD is None
+    assert settings.ADMIN_AUTH_SECRET is None
+    assert settings.ADMIN_PASSWORD_HASH is None
     assert settings.NEO4J_URI is None
     assert settings.NEO4J_USERNAME is None
     assert settings.NEO4J_PASSWORD is None
@@ -74,13 +95,24 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("GRAPH_EXPORT_DIR", "/tmp/graph_exports")
     monkeypatch.setenv("GRAPH_IMPORT_DIR", "/tmp/graph_imports")
     monkeypatch.setenv("GRAPH_INSTANCE_LOCAL_PATH", "/tmp/graph_instance.db")
+    monkeypatch.setenv("KEY_VAULT_ENABLED", "true")
+    monkeypatch.setenv("KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+    monkeypatch.setenv("KEY_VAULT_USE_MANAGED_IDENTITY", "true")
+    monkeypatch.setenv("KEY_VAULT_TIMEOUT_SECONDS", "9")
     monkeypatch.setenv("JWT_SECRET", "local-secret")
+    monkeypatch.setenv("JWT_SECRET_NAME", "jwt-secret")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "admin-secret")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD_SECRET_NAME", "initial-admin-password")
+    monkeypatch.setenv("ADMIN_AUTH_SECRET", "admin-auth")
+    monkeypatch.setenv("ADMIN_AUTH_SECRET_NAME", "admin-auth-secret")
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", "bcrypt-hash")
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH_SECRET_NAME", "admin-password-hash")
     monkeypatch.setenv("NEO4J_URI", "neo4j+s://demo.databases.neo4j.io")
     monkeypatch.setenv("NEO4J_USERNAME", "neo4j")
     monkeypatch.setenv("NEO4J_PASSWORD", "password")
     monkeypatch.setenv("DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setenv("DIFY_API_KEY", "dify-api-key")
+    monkeypatch.setenv("DIFY_API_KEY_SECRET_NAME", "dify-api-key")
 
     settings = Settings()
 
@@ -97,13 +129,24 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.GRAPH_EXPORT_DIR == "/tmp/graph_exports"
     assert settings.GRAPH_IMPORT_DIR == "/tmp/graph_imports"
     assert str(settings.graph_instance_path) == "/tmp/graph_instance.db"
+    assert settings.KEY_VAULT_ENABLED is True
+    assert settings.KEY_VAULT_URL == "https://atlascore-kv.vault.azure.net"
+    assert settings.KEY_VAULT_USE_MANAGED_IDENTITY is True
+    assert settings.KEY_VAULT_TIMEOUT_SECONDS == 9
     assert settings.JWT_SECRET == "local-secret"
+    assert settings.JWT_SECRET_NAME == "jwt-secret"
     assert settings.INITIAL_ADMIN_PASSWORD == "admin-secret"
+    assert settings.INITIAL_ADMIN_PASSWORD_SECRET_NAME == "initial-admin-password"
+    assert settings.ADMIN_AUTH_SECRET == "admin-auth"
+    assert settings.ADMIN_AUTH_SECRET_NAME == "admin-auth-secret"
+    assert settings.ADMIN_PASSWORD_HASH == "bcrypt-hash"
+    assert settings.ADMIN_PASSWORD_HASH_SECRET_NAME == "admin-password-hash"
     assert settings.NEO4J_URI == "neo4j+s://demo.databases.neo4j.io"
     assert settings.NEO4J_USERNAME == "neo4j"
     assert settings.NEO4J_PASSWORD == "password"
     assert settings.DIFY_BASE_URL == "https://dify.example.com"
     assert settings.DIFY_API_KEY == "dify-api-key"
+    assert settings.DIFY_API_KEY_SECRET_NAME == "dify-api-key"
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):
@@ -186,7 +229,7 @@ def test_production_requires_jwt_secret(monkeypatch):
         raised = False
     except ValueError as exc:
         raised = True
-        assert "JWT_SECRET is required when APP_ENV=production" in str(exc)
+        assert "JWT_SECRET is required" in str(exc)
 
     assert raised is True
 
@@ -196,3 +239,128 @@ def test_invalid_config_path_raises_value_error(monkeypatch):
 
     with pytest.raises(ValueError, match="APP_CONFIG_PATH does not exist"):
         Settings()
+
+
+def test_settings_resolve_secrets_from_environment(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("JWT_SECRET", "env-jwt-secret")
+    monkeypatch.setenv("DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setenv("DIFY_API_KEY", "env-dify-api-key")
+
+    settings = Settings()
+
+    assert settings.resolved_jwt_secret == "env-jwt-secret"
+    assert settings.resolved_dify_api_key == "env-dify-api-key"
+    summary = settings.secret_status_summary()
+    assert summary["JWT_SECRET"] == {"configured": True, "source": "env"}
+    assert summary["DIFY_API_KEY"] == {"configured": True, "source": "env"}
+
+
+def test_settings_resolve_secrets_from_key_vault_secret_name(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("KEY_VAULT_ENABLED", "true")
+    monkeypatch.setenv("KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+    monkeypatch.setenv("JWT_SECRET_NAME", "jwt-secret")
+
+    settings = Settings()
+
+    class MockSecretClient:
+        def get_secret(self, name: str):
+            assert name == "jwt-secret"
+            return SimpleNamespace(value="kv-jwt-secret")
+
+    mock_client = MockSecretClient()
+    monkeypatch.setattr(
+        "app.core.secrets.SecretResolver._get_secret_client",
+        lambda self, vault_url: mock_client,
+    )
+
+    resolved = settings.resolve_secret(
+        env_var="JWT_SECRET",
+        secret_name_var="JWT_SECRET_NAME",
+        required=True,
+        allow_missing_in_dev=False,
+    )
+
+    assert resolved.value == "kv-jwt-secret"
+    assert resolved.source == "key_vault_sdk"
+
+
+def test_settings_resolve_secrets_from_key_vault_reference(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv(
+        "JWT_SECRET",
+        "@Microsoft.KeyVault(VaultName=atlascore-kv;SecretName=jwt-secret)",
+    )
+
+    settings = Settings()
+
+    class MockSecretClient:
+        def get_secret(self, name: str):
+            assert name == "jwt-secret"
+            return SimpleNamespace(value="kv-ref-secret")
+
+    monkeypatch.setattr(
+        "app.core.secrets.SecretResolver._get_secret_client",
+        lambda self, vault_url: MockSecretClient(),
+    )
+
+    resolved = settings.resolve_secret(env_var="JWT_SECRET", secret_name_var="JWT_SECRET_NAME")
+
+    assert resolved.value == "kv-ref-secret"
+    assert resolved.source == "kv_reference"
+
+
+def test_settings_allow_missing_secret_in_test_when_sdk_unavailable(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("KEY_VAULT_ENABLED", "true")
+    monkeypatch.setenv("KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+    monkeypatch.setenv("JWT_SECRET_NAME", "jwt-secret")
+
+    settings = Settings()
+    monkeypatch.setattr(
+        "app.core.secrets.SecretResolver._get_secret_client",
+        lambda self, vault_url: (_ for _ in ()).throw(SecretResolutionError("sdk unavailable")),
+    )
+
+    resolved = settings.resolve_secret(env_var="JWT_SECRET", secret_name_var="JWT_SECRET_NAME")
+
+    assert resolved.value is None
+    assert resolved.source == "missing"
+
+
+def test_settings_require_secret_in_production_when_key_vault_fails(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("KEY_VAULT_ENABLED", "true")
+    monkeypatch.setenv("KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+    monkeypatch.setenv("JWT_SECRET_NAME", "jwt-secret")
+
+    monkeypatch.setattr(
+        "app.core.secrets.SecretResolver._get_secret_client",
+        lambda self, vault_url: (_ for _ in ()).throw(SecretResolutionError("sdk unavailable")),
+    )
+
+    with pytest.raises(ValueError, match="JWT_SECRET is required but was not resolved"):
+        Settings()
+
+
+def test_secret_status_summary_does_not_include_secret_values(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("JWT_SECRET", "super-secret-value")
+
+    settings = Settings()
+    summary = settings.secret_status_summary()
+
+    assert "super-secret-value" not in json.dumps(summary)
+    assert summary["JWT_SECRET"]["configured"] is True
+
+
+def test_non_secret_graph_configuration_remains_unchanged(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("GRAPH_DEFAULT_LIMIT", "55")
+    monkeypatch.setenv("GRAPH_IMPORT_DIR", "/tmp/imports")
+
+    settings = Settings()
+
+    assert settings.GRAPH_DEFAULT_LIMIT == 55
+    assert settings.GRAPH_IMPORT_DIR == "/tmp/imports"

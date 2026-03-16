@@ -7,6 +7,8 @@ import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.secrets import ResolvedSecret, SecretResolutionError, SecretResolver
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
@@ -58,15 +60,27 @@ class Settings(BaseSettings):
     GRAPH_IMPORT_DIR: str = "./data/graph_imports"
     GRAPH_SNAPSHOT_PATH: str | None = None
     GRAPH_INSTANCE_LOCAL_PATH: str | None = None
+    KEY_VAULT_ENABLED: bool = False
+    KEY_VAULT_URL: str | None = None
+    AZURE_KEY_VAULT_URL: str | None = None
+    KEY_VAULT_USE_MANAGED_IDENTITY: bool = False
+    KEY_VAULT_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0)
 
     JWT_SECRET: str | None = None
+    JWT_SECRET_NAME: str | None = None
     INITIAL_ADMIN_PASSWORD: str | None = None
+    INITIAL_ADMIN_PASSWORD_SECRET_NAME: str | None = None
+    ADMIN_AUTH_SECRET: str | None = None
+    ADMIN_AUTH_SECRET_NAME: str | None = None
+    ADMIN_PASSWORD_HASH: str | None = None
+    ADMIN_PASSWORD_HASH_SECRET_NAME: str | None = None
     NEO4J_URI: str | None = None
     NEO4J_DATABASE: str = "neo4j"
     NEO4J_USERNAME: str | None = None
     NEO4J_PASSWORD: str | None = None
     DIFY_BASE_URL: str | None = None
     DIFY_API_KEY: str | None = None
+    DIFY_API_KEY_SECRET_NAME: str | None = None
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
 
     API_V1_PREFIX: str = ""
@@ -116,6 +130,83 @@ class Settings(BaseSettings):
     def graph_sqlite_url(self) -> str:
         return f"sqlite:///{self.graph_instance_path}"
 
+    def _secret_resolver(self) -> SecretResolver:
+        return SecretResolver(self)
+
+    def resolve_secret(
+        self,
+        *,
+        env_var: str,
+        secret_name_var: str | None = None,
+        required: bool = False,
+        allow_missing_in_dev: bool = True,
+    ) -> ResolvedSecret:
+        return self._secret_resolver().resolve(
+            env_var=env_var,
+            secret_name_var=secret_name_var,
+            required=required,
+            allow_missing_in_dev=allow_missing_in_dev,
+        )
+
+    @property
+    def resolved_jwt_secret(self) -> str | None:
+        return self.resolve_secret(
+            env_var="JWT_SECRET",
+            secret_name_var="JWT_SECRET_NAME",
+            required=self.is_production,
+            allow_missing_in_dev=False,
+        ).value
+
+    @property
+    def resolved_initial_admin_password(self) -> str | None:
+        return self.resolve_secret(
+            env_var="INITIAL_ADMIN_PASSWORD",
+            secret_name_var="INITIAL_ADMIN_PASSWORD_SECRET_NAME",
+        ).value
+
+    @property
+    def resolved_admin_auth_secret(self) -> str | None:
+        return self.resolve_secret(
+            env_var="ADMIN_AUTH_SECRET",
+            secret_name_var="ADMIN_AUTH_SECRET_NAME",
+        ).value
+
+    @property
+    def resolved_admin_password_hash(self) -> str | None:
+        return self.resolve_secret(
+            env_var="ADMIN_PASSWORD_HASH",
+            secret_name_var="ADMIN_PASSWORD_HASH_SECRET_NAME",
+        ).value
+
+    @property
+    def resolved_dify_api_key(self) -> str | None:
+        return self.resolve_secret(
+            env_var="DIFY_API_KEY",
+            secret_name_var="DIFY_API_KEY_SECRET_NAME",
+        ).value
+
+    def secret_status_summary(self) -> dict[str, dict[str, str | bool]]:
+        tracked = {
+            "JWT_SECRET": ("JWT_SECRET", "JWT_SECRET_NAME"),
+            "INITIAL_ADMIN_PASSWORD": ("INITIAL_ADMIN_PASSWORD", "INITIAL_ADMIN_PASSWORD_SECRET_NAME"),
+            "ADMIN_AUTH_SECRET": ("ADMIN_AUTH_SECRET", "ADMIN_AUTH_SECRET_NAME"),
+            "ADMIN_PASSWORD_HASH": ("ADMIN_PASSWORD_HASH", "ADMIN_PASSWORD_HASH_SECRET_NAME"),
+            "DIFY_API_KEY": ("DIFY_API_KEY", "DIFY_API_KEY_SECRET_NAME"),
+        }
+        summary: dict[str, dict[str, str | bool]] = {}
+        for label, (env_var, secret_name_var) in tracked.items():
+            try:
+                resolved = self.resolve_secret(
+                    env_var=env_var,
+                    secret_name_var=secret_name_var,
+                    required=False,
+                )
+            except SecretResolutionError as exc:
+                summary[label] = {"configured": False, "source": "error", "detail": str(exc)}
+                continue
+            summary[label] = {"configured": resolved.is_configured, "source": resolved.source}
+        return summary
+
     @model_validator(mode="before")
     @classmethod
     def apply_config_file(cls, data: Any) -> Any:
@@ -158,7 +249,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_critical_config(self) -> "Settings":
-        if self.is_production and not self.JWT_SECRET:
+        try:
+            jwt_secret = self.resolve_secret(
+                env_var="JWT_SECRET",
+                secret_name_var="JWT_SECRET_NAME",
+                required=self.is_production,
+                allow_missing_in_dev=False,
+            ).value
+        except SecretResolutionError as exc:
+            raise ValueError(str(exc)) from exc
+        if self.is_production and not jwt_secret:
             raise ValueError("JWT_SECRET is required when APP_ENV=production")
 
         neo4j_values = [self.NEO4J_URI, self.NEO4J_USERNAME, self.NEO4J_PASSWORD]
@@ -167,7 +267,15 @@ class Settings(BaseSettings):
                 "NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD must be provided together"
             )
 
-        dify_values = [self.DIFY_BASE_URL, self.DIFY_API_KEY]
+        try:
+            dify_api_key = self.resolve_secret(
+                env_var="DIFY_API_KEY",
+                secret_name_var="DIFY_API_KEY_SECRET_NAME",
+            ).value
+        except SecretResolutionError as exc:
+            raise ValueError(str(exc)) from exc
+
+        dify_values = [self.DIFY_BASE_URL, dify_api_key]
         if any(dify_values) and not all(dify_values):
             raise ValueError("DIFY_BASE_URL and DIFY_API_KEY must be provided together")
 

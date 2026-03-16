@@ -1,1 +1,1 @@
-"""Azure integration placeholder (Key Vault, Managed Identity)."""
+"""Azure integration helpers and placeholders for Key Vault and Managed Identity."""

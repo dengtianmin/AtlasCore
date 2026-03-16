@@ -4,18 +4,21 @@ AtlasCore 当前同时包含：
 - FastAPI 后端：管理员认证、文档管理、图谱浏览、问答日志、反馈与 CSV 导出
 - Next.js 前端：工作台、聊天页、图谱页、管理员后台
 
-AtlasCore 现在处于“步骤八：轻量图模块完成”状态：
+AtlasCore 现在处于“步骤九：Key Vault ready 的敏感配置集中治理完成”状态：
 - Dify 仍负责知识库问答主链路和最终答案生成
 - AtlasCore 负责管理员认证、文档元数据、图谱接口、问答日志、反馈/导出基础能力
 - 运行期主存储为 SQLite
 - 导出格式为 CSV
 - 图谱底层已切换为 SQLite + Python 图运行层
 - `NEO4J_*` 仅为后续集成预留，不参与当前图模块运行
+- 敏感配置已统一走 secret resolver，兼容本地 `.env` 与 Azure Key Vault
 
 ## 1. 当前架构边界
 
 ### 本步已完成
 - 统一配置加载：环境变量 + YAML/JSON 初始化配置文件
+- 敏感配置集中治理与统一 secret resolver
+- Azure Key Vault ready
 - SQLite-first 数据层
 - 启动时自动建表
 - 可选的初始管理员初始化
@@ -35,7 +38,7 @@ AtlasCore 现在处于“步骤八：轻量图模块完成”状态：
 - 多角色权限系统
 - 基础 RAG 主链路迁入 AtlasCore
 - 完整 Dify API 联调
-- Key Vault / Managed Identity
+- 步骤十的 Managed Identity 实际启用与授权配置
 - 多实例并发写同一 SQLite
 
 ## 2. 配置职责
@@ -61,11 +64,15 @@ AtlasCore 现在处于“步骤八：轻量图模块完成”状态：
 - `integrations.*`
   - Neo4j / Dify / JWT 的非敏感占位配置，其中 Neo4j 当前仅预留
 
-### 环境变量字段
-环境变量负责运行环境差异和敏感项：
+### 普通环境变量
+普通环境变量负责运行环境差异和非敏感默认项：
 
 | 变量 | 说明 | 这一步是否使用 |
 |---|---|---|
+| `APP_NAME` | 服务名称 | 是 |
+| `APP_ENV` | 运行环境 | 是 |
+| `PORT` | 服务端口 | 是 |
+| `LOG_LEVEL` | 日志级别 | 是 |
 | `APP_CONFIG_PATH` | YAML/JSON 配置文件路径 | 是 |
 | `SQLITE_PATH` | SQLite 文件路径 | 是 |
 | `CSV_EXPORT_DIR` | CSV 导出目录 | 是 |
@@ -78,15 +85,30 @@ AtlasCore 现在处于“步骤八：轻量图模块完成”状态：
 | `GRAPH_IMPORT_DIR` | 图 SQLite 导入目录 | 是 |
 | `GRAPH_INSTANCE_LOCAL_PATH` | 当前实例图 SQLite 文件路径 | 是 |
 | `GRAPH_SNAPSHOT_PATH` | 图快照路径 | 是 |
-| `INITIAL_ADMIN_PASSWORD` | 初始管理员密码 | 是，且必须走环境变量 |
-| `JWT_SECRET` | JWT 密钥 | 是 |
+| `KEY_VAULT_ENABLED` | 是否启用应用内 Key Vault SDK 读取 | 是 |
+| `KEY_VAULT_URL` / `AZURE_KEY_VAULT_URL` | Key Vault 地址 | 是 |
+| `KEY_VAULT_USE_MANAGED_IDENTITY` | 为步骤十预留的托管身份开关 | 是 |
+| `KEY_VAULT_TIMEOUT_SECONDS` | Key Vault SDK 超时控制 | 是 |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 预留配置 | 仅预留，不参与当前轻量图运行 |
-| `DIFY_BASE_URL` / `DIFY_API_KEY` | Dify 预留配置 | 仅预留 |
+| `DIFY_BASE_URL` | Dify 地址 | 仅预留 |
+
+### 敏感 secret
+以下字段统一走 secret resolver，可来自本地 `.env`、App Service Key Vault Reference 注入后的环境变量，或 `*_SECRET_NAME + KEY_VAULT_URL` 的 Azure SDK 拉取：
+
+| 变量 | 说明 | 当前状态 |
+|---|---|---|
+| `JWT_SECRET` / `JWT_SECRET_NAME` | JWT 密钥 | 当前使用 |
+| `INITIAL_ADMIN_PASSWORD` / `INITIAL_ADMIN_PASSWORD_SECRET_NAME` | 初始管理员密码 | 当前使用 |
+| `ADMIN_AUTH_SECRET` / `ADMIN_AUTH_SECRET_NAME` | 管理员认证扩展密钥 | 预留 |
+| `ADMIN_PASSWORD_HASH` / `ADMIN_PASSWORD_HASH_SECRET_NAME` | 固定管理员哈希口令 | 预留 |
+| `DIFY_API_KEY` / `DIFY_API_KEY_SECRET_NAME` | Dify API Key | 可选 |
 
 说明：
 - 初始管理员用户名可以放配置文件。
 - 初始管理员密码不写入配置文件，避免明文落盘。
-- 当前步骤不要求设置 Neo4j / Dify 环境变量。
+- 当前轻量图方案不要求把 `SQLITE_PATH`、图导入导出目录、图实例 SQLite 文件路径放进 Key Vault。
+- 当前步骤不要求设置 Neo4j 环境变量；`DIFY_API_KEY` 只有在接入 Dify 时才需要配置。
+- secret 读取优先级为：显式环境变量值（包含 App Service 已解析的 Key Vault Reference） > Key Vault reference 字符串解析 > `*_SECRET_NAME` 的 Azure SDK 拉取 > 非生产环境可控缺省。
 
 ## 3. 数据职责
 
@@ -121,6 +143,8 @@ pip install -r requirements.txt
 
 ```bash
 export APP_CONFIG_PATH=/home/Project/AtlasCore/config/app.example.yaml
+export APP_ENV=development
+export LOG_LEVEL=INFO
 export SQLITE_PATH=/home/Project/AtlasCore/data/atlascore.db
 export CSV_EXPORT_DIR=/home/Project/AtlasCore/data/exports
 export DOCUMENT_LOCAL_STORAGE_DIR=/home/Project/AtlasCore/data/uploads
@@ -131,6 +155,7 @@ export GRAPH_RELOAD_ON_START=true
 export GRAPH_EXPORT_DIR=/home/Project/AtlasCore/data/graph_exports
 export GRAPH_IMPORT_DIR=/home/Project/AtlasCore/data/graph_imports
 export GRAPH_INSTANCE_LOCAL_PATH=/home/Project/AtlasCore/data/atlascore_graph.db
+export KEY_VAULT_ENABLED=false
 export INITIAL_ADMIN_PASSWORD='StrongPass123!'
 export JWT_SECRET='local-dev-secret'
 ```
@@ -139,7 +164,8 @@ export JWT_SECRET='local-dev-secret'
 
 ```bash
 export PORT=8000
-export APP_ENV=development
+export DIFY_BASE_URL=https://dify.example.com
+export DIFY_API_KEY='local-dify-api-key'
 ```
 
 ### 启动服务
@@ -480,6 +506,42 @@ docker run --rm -p 8000:8000 \
 
 这些路径都可以被环境变量覆盖，适合后续迁移到 Azure App Service 挂载目录。
 
+## 8. Azure Key Vault Ready
+
+### 方式 A：App Service Key Vault Reference 注入环境变量
+
+在 App Service 应用设置中直接配置：
+
+```text
+JWT_SECRET=@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/atlascore-jwt-secret/)
+INITIAL_ADMIN_PASSWORD=@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/atlascore-initial-admin-password/)
+DIFY_API_KEY=@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/atlascore-dify-api-key/)
+```
+
+如果 App Service 已成功解析这些引用，AtlasCore 在应用内看到的就是普通环境变量值，代码侧来源会记为 `env`，不需要显式调用 Azure SDK。
+
+### 方式 B：应用通过 DefaultAzureCredential + Secret Name 主动拉取
+
+在 App Service 或容器环境中配置：
+
+```text
+KEY_VAULT_ENABLED=true
+KEY_VAULT_URL=https://<vault-name>.vault.azure.net
+KEY_VAULT_USE_MANAGED_IDENTITY=true
+JWT_SECRET_NAME=atlascore-jwt-secret
+INITIAL_ADMIN_PASSWORD_SECRET_NAME=atlascore-initial-admin-password
+DIFY_API_KEY_SECRET_NAME=atlascore-dify-api-key
+```
+
+AtlasCore 会使用 `DefaultAzureCredential` 和 `azure-keyvault-secrets` 主动读取机密。这一步已经为步骤十预留好了托管身份接入点，但不要求当前就完成 Managed Identity 授权配置。
+
+### 如何验证 Key Vault ready
+
+- 本地开发：直接在 `.env` 设置 `JWT_SECRET`、`INITIAL_ADMIN_PASSWORD` 即可启动。
+- Azure Key Vault Reference 模式：将敏感变量配置成 Key Vault Reference，应用启动后 `/health` 仍只返回服务状态，不泄漏 secret。
+- Azure SDK 模式：设置 `KEY_VAULT_ENABLED=true`、`KEY_VAULT_URL` 和对应 `*_SECRET_NAME`，启动时关键 secret 缺失会给出受控错误。
+- 当前不会在日志或接口中打印真实 secret；只会保留“是否已配置”和“读取来源”的摘要信息。
+
 ## 7. 关键文件
 
 ### 核心代码目录
@@ -508,7 +570,7 @@ docker run --rm -p 8000:8000 \
 - `graph_sync_records`
 - `graph_versions`
 
-## 8. 为后续步骤预留的点
+## 9. 为后续步骤预留的点
 
 ### 第七步预留
 - SQLite 路径和导出目录都可通过环境变量注入，适合 App Service
@@ -527,10 +589,10 @@ docker run --rm -p 8000:8000 \
 ### 仍未完成
 - 真实 Dify API 联调
 - 多跳复杂图算法与跨实例共享图库
-- Key Vault / Managed Identity
+- 步骤十的 Managed Identity 实际启用、权限授予与轮换策略
 - 多实例共享存储与并发写控制
 
-## 9. 测试
+## 10. 测试
 
 运行全量测试：
 

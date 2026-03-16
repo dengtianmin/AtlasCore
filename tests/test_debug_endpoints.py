@@ -18,11 +18,14 @@ async def _run_lifespan() -> None:
 
 
 def test_debug_qa_log_flow(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "APP_ENV", "test")
     monkeypatch.setattr(settings, "SQLITE_PATH", str(tmp_path / "runtime" / "atlascore.db"))
     monkeypatch.setattr(settings, "CSV_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setattr(settings, "DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))
     monkeypatch.setattr(settings, "INITIAL_ADMIN_USERNAME", "admin")
     monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD", "StrongPass123!")
+    monkeypatch.setattr(settings, "JWT_SECRET", "unit-test-secret")
+    monkeypatch.setattr(settings, "JWT_SECRET_NAME", None)
     reset_db_state()
     asyncio.run(_run_lifespan())
 
@@ -69,17 +72,52 @@ def test_debug_qa_log_flow(monkeypatch, tmp_path):
 
 
 def test_lifespan_bootstraps_admin_account(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "APP_ENV", "test")
     monkeypatch.setattr(settings, "SQLITE_PATH", str(tmp_path / "runtime" / "atlascore.db"))
     monkeypatch.setattr(settings, "CSV_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setattr(settings, "DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))
     monkeypatch.setattr(settings, "INITIAL_ADMIN_USERNAME", "bootstrap-admin")
     monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD", "StrongPass123!")
+    monkeypatch.setattr(settings, "JWT_SECRET", "unit-test-secret")
+    monkeypatch.setattr(settings, "JWT_SECRET_NAME", None)
     reset_db_state()
     asyncio.run(_run_lifespan())
 
     db = get_session_factory()()
     try:
         response = AuthService().login(db, username="bootstrap-admin", password="StrongPass123!")
+    finally:
+        db.close()
+
+    assert response.token_type == "bearer"
+
+
+def test_lifespan_bootstraps_admin_account_from_key_vault_secret(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "APP_ENV", "test")
+    monkeypatch.setattr(settings, "SQLITE_PATH", str(tmp_path / "runtime" / "atlascore.db"))
+    monkeypatch.setattr(settings, "CSV_EXPORT_DIR", str(tmp_path / "exports"))
+    monkeypatch.setattr(settings, "DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(settings, "INITIAL_ADMIN_USERNAME", "kv-admin")
+    monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD", None)
+    monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD_SECRET_NAME", "initial-admin-password")
+    monkeypatch.setattr(settings, "JWT_SECRET", "unit-test-secret")
+    monkeypatch.setattr(settings, "JWT_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "KEY_VAULT_ENABLED", True)
+    monkeypatch.setattr(settings, "KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+    monkeypatch.setattr(
+        "app.core.secrets.SecretResolver._get_secret_client",
+        lambda self, vault_url: type(
+            "MockSecretClient",
+            (),
+            {"get_secret": lambda self, name: type("SecretBundle", (), {"value": "StrongPass123!"})()},
+        )(),
+    )
+    reset_db_state()
+    asyncio.run(_run_lifespan())
+
+    db = get_session_factory()()
+    try:
+        response = AuthService().login(db, username="kv-admin", password="StrongPass123!")
     finally:
         db.close()
 
