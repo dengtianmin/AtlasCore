@@ -1,16 +1,8 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends
-
-from app.auth.dependencies import require_roles
-from app.auth.principal import Principal
-from app.auth.rbac import ROLE_ADMIN
+from fastapi import APIRouter
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/ping")
-def user_ping(
-    principal: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
-) -> dict:
-    return {"status": "ok", "scope": "user", "user_id": principal.user_id}
+def user_ping() -> dict[str, str]:
+    return {"status": "ok", "scope": "anonymous"}
