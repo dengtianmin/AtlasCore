@@ -1,11 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import FileResponse
 
 from app.auth.dependencies import require_roles
 from app.auth.principal import Principal
 from app.auth.rbac import ROLE_ADMIN
-from app.schemas.admin import GraphAdminStatusResponse, GraphReloadResponse
+from app.schemas.admin import GraphAdminStatusResponse, GraphFileOperationResponse, GraphReloadResponse
 from app.services.graph_service import GraphService
 
 router = APIRouter(prefix="/api/admin/graph", tags=["admin-graph"])
@@ -24,3 +25,27 @@ def reload_graph(
     _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
 ) -> GraphReloadResponse:
     return GraphReloadResponse(**service.reload_graph())
+
+
+@router.post("/export", response_model=GraphFileOperationResponse)
+def export_graph(
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
+) -> GraphFileOperationResponse:
+    return GraphFileOperationResponse(**service.export_graph_sqlite())
+
+
+@router.post("/import", response_model=GraphFileOperationResponse)
+def import_graph(
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
+    file: UploadFile = File(...),
+) -> GraphFileOperationResponse:
+    return GraphFileOperationResponse(**service.import_graph_sqlite(file))
+
+
+@router.get("/download/{filename}")
+def download_graph_export(
+    filename: str,
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
+) -> FileResponse:
+    file_path = service.resolve_export_download_path(filename)
+    return FileResponse(path=file_path, media_type="application/x-sqlite3", filename=file_path.name)

@@ -70,10 +70,26 @@ class GraphAdminStatusResponse(BaseModel):
     last_loaded_at: datetime | None
     import_dir: str
     export_dir: str
+    import_dir_exists: bool
+    export_dir_exists: bool
     instance_local_path: str
 
 
 class GraphReloadResponse(BaseModel):
+    loaded: bool
+    node_count: int
+    edge_count: int
+    current_version: str | None
+    sqlite_path: str
+    last_loaded_at: datetime | None
+
+
+class GraphFileOperationResponse(BaseModel):
+    record_id: UUID
+    filename: str
+    file_path: str
+    download_url: str | None = None
+    version: str | None
     loaded: bool
     node_count: int
     edge_count: int
