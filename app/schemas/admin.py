@@ -66,6 +66,8 @@ class GraphAdminStatusResponse(BaseModel):
     node_count: int
     edge_count: int
     current_version: str | None
+    instance_id: str
+    graph_db_version: str | None
     sqlite_path: str
     last_loaded_at: datetime | None
     import_dir: str

@@ -39,6 +39,8 @@ graph:
   export_dir: ./data/graph_exports
   import_dir: ./data/graph_imports
   instance_local_path: ./data/atlascore_graph.db
+  instance_id: atlascore-instance-local
+  db_version: atlascore-graph-v1
   snapshot_path: ./data/atlascore_graph.db
 
 integrations:
@@ -47,5 +49,6 @@ integrations:
     database: neo4j
   dify:
     enabled: false
+    base_url: null
   jwt:
     enabled: true

@@ -15,6 +15,8 @@ def _bootstrap(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "GRAPH_INSTANCE_LOCAL_PATH", str(tmp_path / "graph" / "api.db"))
     monkeypatch.setattr(settings, "GRAPH_EXPORT_DIR", str(tmp_path / "graph_exports"))
     monkeypatch.setattr(settings, "GRAPH_IMPORT_DIR", str(tmp_path / "graph_imports"))
+    monkeypatch.setattr(settings, "GRAPH_INSTANCE_ID", "api-instance")
+    monkeypatch.setattr(settings, "GRAPH_DB_VERSION", "api-v1")
     monkeypatch.setattr(settings, "GRAPH_ENABLED", True)
     reset_graph_db_state()
     _runtime.reset()
@@ -94,6 +96,8 @@ def test_admin_graph_routes(monkeypatch, tmp_path):
     reload_payload = reload_graph(_=_admin_principal())
 
     assert status_payload.enabled is True
+    assert status_payload.instance_id == "api-instance"
+    assert status_payload.graph_db_version == "api-v1"
     assert status_payload.instance_local_path.endswith("api.db")
     assert reload_payload.loaded is True
     assert reload_payload.node_count == 2

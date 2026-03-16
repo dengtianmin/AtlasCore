@@ -49,11 +49,13 @@ class GraphService:
         return {
             **summary,
             "enabled": settings.GRAPH_ENABLED,
-            "import_dir": settings.GRAPH_IMPORT_DIR,
-            "export_dir": settings.GRAPH_EXPORT_DIR,
+            "instance_id": settings.GRAPH_INSTANCE_ID,
+            "graph_db_version": settings.GRAPH_DB_VERSION,
+            "import_dir": Path(settings.GRAPH_IMPORT_DIR).expanduser().name,
+            "export_dir": Path(settings.GRAPH_EXPORT_DIR).expanduser().name,
             "import_dir_exists": Path(settings.GRAPH_IMPORT_DIR).expanduser().exists(),
             "export_dir_exists": Path(settings.GRAPH_EXPORT_DIR).expanduser().exists(),
-            "instance_local_path": str(settings.graph_instance_path),
+            "instance_local_path": settings.graph_instance_path.name,
         }
 
     def export_graph_sqlite(self) -> dict:
