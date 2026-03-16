@@ -1,4 +1,8 @@
-# AtlasCore API
+# AtlasCore
+
+AtlasCore 当前同时包含：
+- FastAPI 后端：管理员认证、文档管理、图谱浏览、问答日志、反馈与 CSV 导出
+- Next.js 前端：工作台、聊天页、图谱页、管理员后台
 
 AtlasCore 现在处于“Azure 第七步完成”状态：
 - Dify 仍负责知识库问答主链路和最终答案生成
@@ -124,7 +128,56 @@ export APP_ENV=development
 uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 ```
 
-## 5. 最小验证
+## 5. 前端运行
+
+前端代码位于 [frontend/package.json](frontend/package.json)。
+
+### 安装前端依赖
+
+```bash
+cd /home/Project/AtlasCore/frontend
+npm install
+```
+
+### 配置前端 API 地址
+
+```bash
+cd /home/Project/AtlasCore/frontend
+cat <<'EOF' > .env.local
+NEXT_PUBLIC_ATLASCORE_API_BASE_URL=http://127.0.0.1:8000
+EOF
+```
+
+### 启动前端
+
+```bash
+cd /home/Project/AtlasCore/frontend
+npm run dev
+```
+
+默认访问：
+- `http://127.0.0.1:3000/`
+- 管理员登录页：`http://127.0.0.1:3000/admin/login`
+
+## 6. 前端页面与接口对齐
+
+当前前端已实现：
+- `/` 轻量工作台
+- `/chat` 聊天页，对接 `POST /chat/messages`
+- `/graph` 图谱页，对接 `/graph/*`
+- `/admin/login` 管理员登录页，对接 `/auth/login`
+- `/admin` 后台总览页
+- `/admin/documents` 文档管理页，对接 `/admin/documents*`
+- `/admin/logs` 问答日志页，对接 `/api/admin/logs*`
+- `/admin/exports` 导出管理页，对接 `/api/admin/exports*`
+
+新增的前端适配后端接口：
+- `POST /chat/messages`
+- `POST /chat/messages/{message_id}/feedback`
+- `GET /api/admin/logs`
+- `GET /api/admin/logs/{record_id}`
+
+## 7. 最小验证
 
 ### Health
 
@@ -137,6 +190,21 @@ curl -s http://127.0.0.1:${PORT:-8000}/health
 ```json
 {"status":"ok","service":"AtlasCore API"}
 ```
+
+### 聊天接口
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/chat/messages \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question":"AtlasCore 是什么？"
+  }'
+```
+
+说明：
+- 当前返回 AtlasCore 占位答复
+- 该接口已经用于前端聊天页联调
+- 后续可在此处接入真实 Dify 聊天转发
 
 ### 写入一条问答日志
 
@@ -232,12 +300,41 @@ curl -s http://127.0.0.1:${PORT:-8000}/api/admin/exports \
   -H "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
+### 查询正式日志接口
+
+```bash
+curl -s http://127.0.0.1:${PORT:-8000}/api/admin/logs \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
 ### 下载导出的 CSV
 
 ```bash
 curl -OJ http://127.0.0.1:${PORT:-8000}/api/admin/exports/download/<filename> \
   -H "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
+
+## 8. 本地联调建议
+
+1. 先启动后端 `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+2. 再启动前端 `cd frontend && npm run dev`
+3. 访问 `/admin/login`，使用 `admin` 与 `INITIAL_ADMIN_PASSWORD` 登录
+4. 在 `/chat` 验证聊天与反馈
+5. 在 `/graph` 验证图谱浏览与节点详情
+6. 在 `/admin/documents` 验证上传、删除与同步按钮
+7. 在 `/admin/logs` 验证日志筛选与详情
+8. 在 `/admin/exports` 验证导出与下载
+
+## 9. 部署说明
+
+第一版建议沿用“前后端并行部署”的 Azure 结构：
+- AtlasCore API 作为后端服务继续部署
+- Next.js 前端单独部署，并通过 `NEXT_PUBLIC_ATLASCORE_API_BASE_URL` 指向后端
+
+这样可以保持架构边界清晰：
+- 前端只调用 AtlasCore
+- AtlasCore 内部负责 Dify 与后续 Neo4j 扩展
+- 不需要为了第一版引入复杂微前端或额外中间层
 
 ### 兼容的 debug 导出接口
 

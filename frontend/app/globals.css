@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 220 16% 18%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 16% 18%;
+  --panel: 210 20% 96%;
+  --muted: 210 18% 95%;
+  --muted-foreground: 220 10% 42%;
+  --border: 220 16% 88%;
+  --input: 220 16% 88%;
+  --primary: 212 33% 39%;
+  --primary-foreground: 210 40% 98%;
+  --accent: 206 32% 92%;
+  --accent-foreground: 213 37% 26%;
+  --success: 146 27% 40%;
+  --success-foreground: 150 40% 96%;
+  --warning: 38 52% 47%;
+  --warning-foreground: 48 100% 97%;
+  --destructive: 5 49% 47%;
+  --destructive-foreground: 0 0% 98%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(148, 163, 184, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 247, 250, 0.96)),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.prose-atlascore {
+  @apply text-sm leading-7 text-foreground;
+}
+
+.prose-atlascore p {
+  @apply mb-3 last:mb-0;
+}
+
+.prose-atlascore code {
+  @apply rounded bg-muted px-1 py-0.5 text-xs;
+}

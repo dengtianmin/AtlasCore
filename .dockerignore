@@ -16,3 +16,5 @@ env
 tests/
 README.md
 AGENTS.md
+frontend/node_modules
+frontend/.next
