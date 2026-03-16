@@ -4,3 +4,11 @@ class GraphUnavailableError(Exception):
 
 class GraphQueryError(Exception):
     pass
+
+
+class GraphNodeNotFoundError(Exception):
+    pass
+
+
+class GraphImportError(Exception):
+    pass
