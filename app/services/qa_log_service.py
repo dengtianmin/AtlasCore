@@ -19,6 +19,9 @@ class QuestionAnswerLogService:
         answer: str,
         session_id: str | None,
         source: str,
+        status: str = "succeeded",
+        provider_message_id: str | None = None,
+        error_code: str | None = None,
     ) -> dict:
         record = self.qa_log_repo.create(
             db,
@@ -28,6 +31,9 @@ class QuestionAnswerLogService:
             created_at=datetime.now(UTC),
             session_id=session_id,
             source=source,
+            status=status,
+            provider_message_id=provider_message_id,
+            error_code=error_code,
         )
         db.commit()
         return self._to_payload(record)
@@ -51,4 +57,7 @@ class QuestionAnswerLogService:
             "created_at": record.created_at,
             "session_id": record.session_id,
             "source": record.source,
+            "status": record.status,
+            "provider_message_id": record.provider_message_id,
+            "error_code": record.error_code,
         }

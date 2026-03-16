@@ -1,11 +1,15 @@
 from datetime import UTC, datetime
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger, log_event
 from app.repositories.feedback_repo import FeedbackRepository
 from app.repositories.qa_log_repo import QuestionAnswerLogRepository
+
+logger = get_logger(__name__)
 
 
 class FeedbackService:
@@ -40,7 +44,17 @@ class FeedbackService:
             created_at=datetime.now(UTC),
         )
         db.commit()
-        return self._to_payload(record)
+        payload = self._to_payload(record)
+        log_event(
+            logger,
+            logging.INFO,
+            "feedback_written",
+            "success",
+            qa_log_id=str(qa_log_id),
+            feedback_id=str(payload["id"]),
+            source=payload["source"],
+        )
+        return payload
 
     def list_feedback(self, db: Session, *, qa_log_id: UUID) -> dict:
         qa_log = self.qa_log_repo.get_by_id(db, qa_log_id)
@@ -48,6 +62,10 @@ class FeedbackService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QA log not found")
 
         records = self.feedback_repo.list_by_qa_log(db, qa_log_id=qa_log_id)
+        return {"items": [self._to_payload(record) for record in records]}
+
+    def list_all_feedback(self, db: Session, *, limit: int, offset: int) -> dict:
+        records = self.feedback_repo.list_all(db, limit=limit, offset=offset)
         return {"items": [self._to_payload(record) for record in records]}
 
     def _to_payload(self, record) -> dict:

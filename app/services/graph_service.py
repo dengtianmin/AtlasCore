@@ -29,11 +29,20 @@ class GraphService:
         self.repo = GraphRepository()
 
     def get_summary(self) -> dict:
+        started = perf_counter()
+        self._log_graph_query_started(query_name="summary")
         try:
             summary = self.runtime.load_graph()
             self._sync_runtime_status(summary)
+            self._log_graph_query_succeeded(
+                query_name="summary",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                node_count=summary["node_count"],
+                edge_count=summary["edge_count"],
+            )
             return summary
         except GraphUnavailableError as exc:
+            self._log_graph_query_failed(query_name="summary", detail=str(exc))
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     def reload_graph(self) -> dict:
@@ -56,6 +65,8 @@ class GraphService:
             "import_dir_exists": Path(settings.GRAPH_IMPORT_DIR).expanduser().exists(),
             "export_dir_exists": Path(settings.GRAPH_EXPORT_DIR).expanduser().exists(),
             "instance_local_path": settings.graph_instance_path.name,
+            "instance_local_path_exists": settings.graph_instance_path.exists(),
+            "multi_instance_mode": "instance_local_sqlite_only",
         }
 
     def export_graph_sqlite(self) -> dict:
@@ -63,7 +74,7 @@ class GraphService:
         log_event(
             logger,
             logging.INFO,
-            "graph_export",
+            "graph_export_started",
             "started",
             instance_id=settings.GRAPH_INSTANCE_ID,
             path=str(settings.graph_instance_path),
@@ -80,7 +91,7 @@ class GraphService:
             log_event(
                 logger,
                 logging.ERROR,
-                "graph_export",
+                "graph_export_failed",
                 "failed",
                 error_type="graph_export_error",
                 detail="Graph SQLite file not found",
@@ -100,7 +111,7 @@ class GraphService:
             log_event(
                 logger,
                 logging.ERROR,
-                "graph_export",
+                "graph_export_failed",
                 "failed",
                 error_type="graph_export_error",
                 detail=str(exc),
@@ -152,7 +163,7 @@ class GraphService:
         log_event(
             logger,
             logging.INFO,
-            "graph_export",
+            "graph_export_succeeded",
             "success",
             instance_id=settings.GRAPH_INSTANCE_ID,
             target_path=str(target_path),
@@ -177,7 +188,7 @@ class GraphService:
         log_event(
             logger,
             logging.INFO,
-            "graph_import",
+            "graph_import_started",
             "started",
             instance_id=settings.GRAPH_INSTANCE_ID,
             filename=upload_name,
@@ -281,7 +292,7 @@ class GraphService:
             log_event(
                 logger,
                 logging.INFO,
-                "graph_import",
+                "graph_import_succeeded",
                 "success",
                 instance_id=settings.GRAPH_INSTANCE_ID,
                 filename=upload_name,
@@ -296,7 +307,7 @@ class GraphService:
             log_event(
                 logger,
                 logging.ERROR,
-                "graph_import",
+                "graph_import_failed",
                 "failed",
                 error_type="graph_import_error",
                 detail=str(exc),
@@ -323,7 +334,7 @@ class GraphService:
             log_event(
                 logger,
                 logging.ERROR,
-                "graph_import",
+                "graph_import_failed",
                 "failed",
                 error_type="graph_import_error",
                 detail=str(exc),
@@ -356,38 +367,99 @@ class GraphService:
         node_type: str | None = None,
         keyword: str | None = None,
     ) -> dict:
+        started = perf_counter()
+        self._log_graph_query_started(query_name="list_nodes", node_type=node_type, keyword=keyword)
         try:
-            return self.runtime.list_nodes(limit=limit, offset=offset, node_type=node_type, keyword=keyword)
+            payload = self.runtime.list_nodes(limit=limit, offset=offset, node_type=node_type, keyword=keyword)
+            self._log_graph_query_succeeded(
+                query_name="list_nodes",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                result_count=payload["total"],
+            )
+            return payload
         except GraphUnavailableError as exc:
+            self._log_graph_query_failed(query_name="list_nodes", detail=str(exc))
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     def get_node_detail(self, *, node_id: str) -> dict:
+        started = perf_counter()
+        self._log_graph_query_started(query_name="node_detail", node_id=node_id)
         try:
+            node = self.runtime.get_node_detail(node_id)
+            payload = {
+                "node": node,
+                "detail": node,
+                "metadata": {
+                    "query": "node_detail",
+                    "node_id": node_id,
+                },
+            }
+            self._log_graph_query_succeeded(
+                query_name="node_detail",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                node_id=node_id,
+            )
             return {
-                "node": self.runtime.get_node_detail(node_id),
+                **payload,
             }
         except GraphNodeNotFoundError as exc:
+            self._log_graph_query_failed(query_name="node_detail", detail="Node not found", node_id=node_id)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found") from exc
         except GraphUnavailableError as exc:
+            self._log_graph_query_failed(query_name="node_detail", detail=str(exc), node_id=node_id)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     def get_neighbors(self, *, node_id: str, limit: int) -> dict:
+        started = perf_counter()
+        self._log_graph_query_started(query_name="neighbors", node_id=node_id, limit=limit)
         try:
             safe_limit = min(limit, settings.GRAPH_MAX_NEIGHBORS)
-            return self.runtime.get_neighbors(node_id, limit=safe_limit)
+            payload = self.runtime.get_neighbors(node_id, limit=safe_limit)
+            payload["metadata"] = {
+                "query": "neighbors",
+                "node_id": node_id,
+                "limit": safe_limit,
+            }
+            self._log_graph_query_succeeded(
+                query_name="neighbors",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                node_id=node_id,
+                result_count=len(payload["nodes"]),
+            )
+            return payload
         except GraphNodeNotFoundError as exc:
+            self._log_graph_query_failed(query_name="neighbors", detail="Node not found", node_id=node_id)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found") from exc
         except GraphUnavailableError as exc:
+            self._log_graph_query_failed(query_name="neighbors", detail=str(exc), node_id=node_id)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     def get_subgraph(self, *, node_id: str, depth: int, limit: int) -> dict:
         if depth < 1:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="depth must be >= 1")
+        started = perf_counter()
+        self._log_graph_query_started(query_name="subgraph", node_id=node_id, depth=depth, limit=limit)
         try:
-            return self.runtime.get_subgraph(node_id, depth=depth, limit=limit)
+            payload = self.runtime.get_subgraph(node_id, depth=depth, limit=limit)
+            payload["metadata"] = {
+                "query": "subgraph",
+                "node_id": node_id,
+                "depth": depth,
+                "limit": limit,
+            }
+            self._log_graph_query_succeeded(
+                query_name="subgraph",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                node_id=node_id,
+                depth=depth,
+                result_count=len(payload["nodes"]),
+            )
+            return payload
         except GraphNodeNotFoundError as exc:
+            self._log_graph_query_failed(query_name="subgraph", detail="Node not found", node_id=node_id)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found") from exc
         except GraphUnavailableError as exc:
+            self._log_graph_query_failed(query_name="subgraph", detail=str(exc), node_id=node_id)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     # Backward-compatible wrappers for the existing router/front-end.
@@ -401,12 +473,18 @@ class GraphService:
             return {
                 "nodes": listing["items"],
                 "edges": edges,
+                "center": None,
+                "detail": None,
+                "metadata": {"query": "overview", "limit": limit},
                 "total_nodes": summary["node_count"],
                 "total_edges": summary["edge_count"],
             }
         return {
             "nodes": graph["nodes"],
             "edges": graph["edges"],
+            "center": None,
+            "detail": None,
+            "metadata": {"query": "overview", "limit": limit},
             "total_nodes": summary["node_count"],
             "total_edges": summary["edge_count"],
         }
@@ -438,4 +516,24 @@ class GraphService:
             node_count=summary["node_count"],
             edge_count=summary["edge_count"],
             loaded_at=summary["last_loaded_at"],
+        )
+
+    @staticmethod
+    def _log_graph_query_started(*, query_name: str, **fields: object) -> None:
+        log_event(logger, logging.INFO, "graph_query_started", "started", query_name=query_name, **fields)
+
+    @staticmethod
+    def _log_graph_query_succeeded(*, query_name: str, **fields: object) -> None:
+        log_event(logger, logging.INFO, "graph_query_succeeded", "success", query_name=query_name, **fields)
+
+    @staticmethod
+    def _log_graph_query_failed(*, query_name: str, detail: str, **fields: object) -> None:
+        log_event(
+            logger,
+            logging.ERROR,
+            "graph_query_failed",
+            "failed",
+            query_name=query_name,
+            detail=detail,
+            **fields,
         )

@@ -81,11 +81,20 @@ def test_public_graph_routes(monkeypatch, tmp_path):
     _seed_graph()
 
     assert graph_summary().node_count == 2
-    assert graph_overview(limit=10).total_edges == 1
+    overview = graph_overview(limit=10)
+    assert overview.total_edges == 1
+    assert overview.metadata["query"] == "overview"
     assert list_graph_nodes(limit=10, offset=0, node_type=None, keyword="Ali").total == 1
-    assert node_details("n1").node.id == "n1"
-    assert node_neighbors("n1", limit=10).center_node_id == "n1"
-    assert node_subgraph("n1", depth=1, limit=10).center_node_id == "n1"
+    detail = node_details("n1")
+    assert detail.node.id == "n1"
+    assert detail.detail is not None
+    assert detail.metadata["query"] == "node_detail"
+    neighbors = node_neighbors("n1", limit=10)
+    assert neighbors.center_node_id == "n1"
+    assert neighbors.metadata["query"] == "neighbors"
+    subgraph = node_subgraph("n1", depth=1, limit=10)
+    assert subgraph.center_node_id == "n1"
+    assert subgraph.metadata["query"] == "subgraph"
 
 
 def test_admin_graph_routes(monkeypatch, tmp_path):
@@ -99,5 +108,7 @@ def test_admin_graph_routes(monkeypatch, tmp_path):
     assert status_payload.instance_id == "api-instance"
     assert status_payload.graph_db_version == "api-v1"
     assert status_payload.instance_local_path.endswith("api.db")
+    assert status_payload.instance_local_path_exists is True
+    assert status_payload.multi_instance_mode == "instance_local_sqlite_only"
     assert reload_payload.loaded is True
     assert reload_payload.node_count == 2

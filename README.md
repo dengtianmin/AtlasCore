@@ -1,120 +1,84 @@
 # AtlasCore
 
-AtlasCore 是一个 SQLite-first 的 FastAPI 后端，负责系统 API、管理员能力、图谱 API、日志与导出。Dify 继续负责问答主链路；当前运行前提不是 Neo4j 或 PostgreSQL。
+AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联调前端、Dify、Azure 后端、SQLite、轻量图模块与多实例本地图库机制”。
 
-当前仓库已完成“步骤十一：完善应用配置、启动参数、健康检查、日志、导入导出与实例运行规则”。
+## 第12步完成内容
 
-## 当前架构边界
+- 前端统一调用 AtlasCore API。
+- AtlasCore 内部调用 Dify 完成聊天主链路，前端不直接调用 Dify。
+- AtlasCore 将问答日志、反馈、文档元数据、导出记录写入业务 SQLite。
+- AtlasCore 通过 SQLite + Python 轻量图模块提供图谱接口。
+- AtlasCore 提供管理员 CSV 导出、图 SQLite 导入导出、图重载、文档同步与系统状态接口。
+- 多实例运行时，每个实例只使用自己的本地 `GRAPH_INSTANCE_LOCAL_PATH`，不共享同一个 SQLite 图文件。
 
-- Dify 负责问答主链路和答案生成。
-- AtlasCore 负责系统后端、管理员能力、图谱 API、日志与导出。
-- 主业务存储使用 `SQLITE_PATH` 指向的 SQLite 文件。
-- 图谱底层使用 `GRAPH_INSTANCE_LOCAL_PATH` 指向的本地 SQLite 文件，加 Python 图运行层。
-- `NEO4J_*` 仅保留为未来预留项，不是当前运行依赖。
+## 联调边界
 
-## 步骤十一完成内容
+- Dify 负责基础 RAG 问答主链路和最终答案生成。
+- AtlasCore 负责系统 API、聊天封装、日志、反馈、导出、文档管理、图谱接口、管理员能力。
+- 前端不直接访问 Dify。
+- 前端不直接访问底层图存储。
+- Neo4j / PostgreSQL 不是当前步骤的主依赖，`NEO4J_*` 仅保留为未来预留项。
 
-- 统一应用配置与启动参数读取。
-- 启动阶段日志增强，补充结构化初始化事件。
-- `GET /health` 轻量健康检查。
-- `GET /health/ready` 安全状态检查。
-- 图导入导出与 CSV 导出的运行诊断增强。
-- 运行时状态聚合服务，集中提供启动、图加载、导入导出摘要。
-- 明确多实例本地 SQLite 运行规则。
+## 权限模型
+
+- 普通用户：无需登录，可访问 `/chat` 和 `/graph` 相关公开接口。
+- 管理员：需要认证，可访问后台、文档管理、CSV 导出、图 SQLite 导入导出、图重载、联调状态接口。
+
+## 关键接口
+
+- `GET /health`
+- `GET /health/ready`
+- `POST /chat/messages`
+- `POST /chat/messages/{message_id}/feedback`
+- `GET /graph/summary`
+- `GET /graph/overview`
+- `GET /graph/nodes/{node_id}`
+- `GET /graph/nodes/{node_id}/neighbors`
+- `GET /graph/subgraph/{node_id}`
+- `GET /api/admin/logs`
+- `GET /api/admin/logs/feedback`
+- `POST /api/admin/exports/qa-logs`
+- `POST /api/admin/exports/feedback`
+- `GET /api/admin/exports/download/{filename}`
+- `GET /api/admin/graph/status`
+- `POST /api/admin/graph/export`
+- `POST /api/admin/graph/import`
+- `POST /api/admin/graph/reload`
+- `GET /api/admin/system/status`
+- `GET /admin/documents`
+- `POST /admin/documents/upload`
+- `DELETE /admin/documents/{document_id}`
+- `POST /admin/documents/{document_id}/graph-sync`
+- `POST /admin/documents/{document_id}/dify-sync`
 
 ## 关键环境变量
-
-基础运行配置：
-
-- `APP_NAME`
-- `APP_ENV`
-- `PORT`
-- `LOG_LEVEL`
-- `APP_CONFIG_PATH`
-
-SQLite / 业务数据配置：
 
 - `SQLITE_PATH`
 - `CSV_EXPORT_DIR`
 - `DOCUMENT_LOCAL_STORAGE_DIR`
-
-图模块配置：
-
 - `GRAPH_ENABLED`
-- `GRAPH_DEFAULT_LIMIT`
-- `GRAPH_MAX_NEIGHBORS`
-- `GRAPH_RELOAD_ON_START`
 - `GRAPH_INSTANCE_LOCAL_PATH`
 - `GRAPH_IMPORT_DIR`
 - `GRAPH_EXPORT_DIR`
-- `GRAPH_SNAPSHOT_PATH`
 - `GRAPH_INSTANCE_ID`
 - `GRAPH_DB_VERSION`
-
-外部集成与认证：
-
 - `DIFY_BASE_URL` 或 `DIFY_API_BASE`
 - `DIFY_API_KEY`
+- `DIFY_TIMEOUT_SECONDS`
 - `JWT_SECRET`
 - `INITIAL_ADMIN_USERNAME`
 - `INITIAL_ADMIN_PASSWORD`
-- `ADMIN_AUTH_SECRET`
-- `ADMIN_PASSWORD_HASH`
 
-说明：
+## 多实例本地 SQLite 规则
 
-- secret 只做“是否已配置”检查，不会出现在日志或状态接口里。
-- 启动时会自动创建目录型路径，并对关键路径做基础可读写检查。
+- 主业务数据使用 `SQLITE_PATH`。
+- 图谱运行文件使用 `GRAPH_INSTANCE_LOCAL_PATH`。
+- 多个实例不能共享同一个 SQLite 图文件。
+- 每个实例在启动时从自己的本地图 SQLite 文件加载图数据。
+- 如果要统一图版本，应通过导出的 SQLite 图快照分发到各实例。
+- 图导入导出是实例级能力，不是全局共享写锁机制。
 
-## 健康检查与状态检查
-
-`GET /health`
-
-- 用途：App Service 基础健康检查。
-- 行为：始终轻量，固定返回 `200 OK`。
-- 响应：
-
-```json
-{"status":"ok"}
-```
-
-`GET /health/ready`
-
-- 用途：运维排障、实例 readiness 判断。
-- 行为：返回安全摘要，不泄漏 secret。
-- 关键字段：
-  - `config_loaded`
-  - `sqlite_ready`
-  - `migration_ready`
-  - `graph_enabled`
-  - `graph_loaded`
-  - `graph_node_count`
-  - `graph_edge_count`
-  - `graph_instance_id`
-  - `graph_db_version`
-  - `graph_instance_local_path_exists`
-  - `graph_import_dir_readable`
-  - `graph_export_dir_writable`
-  - `csv_export_dir_writable`
-  - `dify_configured`
-  - `admin_auth_configured`
-  - `started_at`
-  - `uptime_seconds`
-
-## 多实例本地 SQLite 运行规则
-
-- 主业务 SQLite 使用 `SQLITE_PATH`。
-- 图实例 SQLite 使用 `GRAPH_INSTANCE_LOCAL_PATH`。
-- 多实例不能共享同一个 SQLite 文件。
-- 每个实例都必须有独立的 `GRAPH_INSTANCE_ID`。
-- 若需要统一图版本，应分发统一导出的 SQLite 图快照，而不是多实例共享写同一个 `graph.db`。
-- 实例启动时从本地图文件加载图数据。
-- 图更新方式应为：
-  - 导入新的 SQLite 图文件；
-  - 替换本地图文件后 reload；
-  - 或随镜像分发新的本地图文件。
-
-## 本地运行
+## 本地联调
 
 ```bash
 cd /home/Project/AtlasCore
@@ -125,57 +89,37 @@ cp .env.example .env
 uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 ```
 
-默认健康检查：
+前端联调前至少确认：
 
 ```bash
 curl -s http://127.0.0.1:${PORT:-8000}/health
 curl -s http://127.0.0.1:${PORT:-8000}/health/ready
 ```
 
-## Docker / Azure App Service
+## Azure 联调
 
-[Dockerfile](/home/Project/AtlasCore/Dockerfile) 默认通过 `PORT` 启动：
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
-```
-
-部署到 Azure App Service 时至少关注：
-
-- 容器实际监听端口是否与 `PORT` 一致。
-- `/health` 用于平台基础健康检查。
-- `/health/ready` 用于运行状态与实例排障。
-- 容器日志中可查看启动阶段事件、SQLite 初始化、graph load、导入导出结果。
-- 需要提前准备本地目录：
-  - `CSV_EXPORT_DIR`
-  - `GRAPH_IMPORT_DIR`
-  - `GRAPH_EXPORT_DIR`
-  - `GRAPH_INSTANCE_LOCAL_PATH` 的父目录
-- 不要让多个实例共享同一个 SQLite 或 graph SQLite 文件。
+- 确认容器监听 `PORT`。
+- 将业务 SQLite、图 SQLite、上传目录、导入导出目录挂到实例本地可写路径。
+- 配置 `DIFY_BASE_URL`、`DIFY_API_KEY`、管理员认证相关环境变量。
+- 使用 `/health` 做平台基础健康检查。
+- 使用 `/health/ready` 和 `/api/admin/system/status` 做联调状态检查。
+- 不要让多个 Azure 实例共享同一份 `GRAPH_INSTANCE_LOCAL_PATH`。
 
 ## 测试
-
-局部测试：
-
-```bash
-pytest -q tests/test_config.py tests/test_runtime_status.py
-pytest -q tests/test_lifespan.py tests/test_main.py
-pytest -q tests/test_health.py
-pytest -q tests/test_graph_file_ops.py tests/test_export_api.py tests/test_graph_service.py tests/test_graph_api.py
-pytest -q tests/test_logging_safety.py
-```
-
-完整测试：
 
 ```bash
 pytest -q
 ```
 
-## 排障提示
+推荐分组：
 
-- `config_error`：优先检查环境变量、`APP_CONFIG_PATH`、secret 配置状态。
-- `sqlite_init_error`：优先检查 `SQLITE_PATH` 父目录权限。
-- `graph_load_error`：优先检查 `GRAPH_INSTANCE_LOCAL_PATH` 是否存在、graph SQLite 表结构是否完整。
-- `graph_import_error`：优先检查导入文件是否为合法 SQLite 图快照。
-- `graph_export_error`：优先检查 graph SQLite 文件是否存在、导出目录是否可写。
-- `csv_export_error`：优先检查 `CSV_EXPORT_DIR` 和业务 SQLite 连接状态。
+```bash
+pytest -q tests/test_chat_api.py tests/test_dify_client.py
+pytest -q tests/test_admin_service.py tests/test_export_api.py tests/test_admin_logs_api.py tests/test_runtime_status.py tests/test_health.py tests/test_admin_system_api.py
+pytest -q tests/test_graph_api.py tests/test_graph_file_ops.py tests/test_graph_service.py
+```
+
+## 文档
+
+- [deployment.md](/home/Project/AtlasCore/docs/deployment.md)
+- [step12_integration.md](/home/Project/AtlasCore/docs/step12_integration.md)

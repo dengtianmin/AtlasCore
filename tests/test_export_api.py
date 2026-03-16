@@ -3,15 +3,15 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.api.v1.admin_exports import download_export, export_qa_logs, list_exports
-from app.api.v1.debug import create_qa_log
+from app.api.v1.admin_exports import download_export, export_feedback, export_qa_logs, list_exports
+from app.api.v1.debug import create_feedback, create_qa_log
 from app.api.v1.root import root
 from app.auth.principal import Principal
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
 from app.schemas.admin import ExportTriggerRequest
-from app.schemas.debug import QuestionAnswerLogCreateRequest
+from app.schemas.debug import FeedbackCreateRequest, QuestionAnswerLogCreateRequest
 from app.services.runtime_status_service import runtime_status_service
 
 
@@ -80,6 +80,43 @@ def test_root_and_export_api_flow(monkeypatch, tmp_path):
 
         root_after = root(db=db)
         assert root_after["latest_export"]["filename"] == export_payload.filename
+    finally:
+        db.close()
+
+
+def test_feedback_export_api_flow(monkeypatch, tmp_path):
+    _bootstrap_runtime(monkeypatch, tmp_path)
+    db = get_session_factory()()
+    try:
+        log = create_qa_log(
+            QuestionAnswerLogCreateRequest(
+                question="What is AtlasCore?",
+                retrieved_context="AtlasCore is the Azure backend layer.",
+                answer="AtlasCore handles system-level backend capabilities.",
+                session_id="session-1",
+                source="dify",
+            ),
+            db=db,
+        )
+        create_feedback(
+            log.id,
+            payload=FeedbackCreateRequest(rating=5, liked=True, comment="good", source="web"),
+            db=db,
+        )
+
+        export_payload = export_feedback(
+            ExportTriggerRequest(operator="root-admin"),
+            _=_admin_principal(),
+        )
+        assert export_payload.success is True
+        assert export_payload.record_count == 1
+        assert export_payload.filename.startswith("feedback_")
+
+        response = download_export(export_payload.filename, _=_admin_principal())
+        assert response.media_type == "text/csv"
+        content = Path(response.path).read_text(encoding="utf-8")
+        assert "qa_log_id" in content
+        assert "good" in content
     finally:
         db.close()
 

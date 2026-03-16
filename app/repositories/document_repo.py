@@ -23,6 +23,7 @@ class DocumentRepository:
         created_by: UUID | None,
         content_type: str | None,
         file_size: int | None,
+        created_at: datetime,
     ) -> Document:
         doc = Document(
             filename=filename,
@@ -36,6 +37,7 @@ class DocumentRepository:
             created_by=created_by,
             content_type=content_type,
             file_size=file_size,
+            created_at=created_at,
         )
         db.add(doc)
         db.flush()
@@ -69,8 +71,12 @@ class DocumentRepository:
         doc: Document,
         target_system: str,
         status: str,
+        synced_at: datetime,
     ) -> Document:
         doc.status = status
+        doc.last_sync_target = target_system
+        doc.last_sync_status = status
+        doc.last_sync_at = synced_at
         if target_system == "dify":
             doc.synced_to_dify = True
         if target_system == "graph":

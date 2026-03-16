@@ -18,3 +18,6 @@ class QuestionAnswerLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     session_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="dify")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="succeeded")
+    provider_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)

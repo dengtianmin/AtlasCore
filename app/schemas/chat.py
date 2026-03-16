@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,10 @@ class ChatMessageResponse(BaseModel):
     answer: str
     source: str
     sources: list[str]
+    retrieved_context: str | None = None
+    status: str
+    provider_message_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 

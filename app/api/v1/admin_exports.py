@@ -44,6 +44,19 @@ def export_qa_logs(
         db.close()
 
 
+@router.post("/feedback", response_model=ExportTriggerResponse)
+def export_feedback(
+    payload: ExportTriggerRequest,
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
+) -> ExportTriggerResponse:
+    db = _db_dependency()
+    try:
+        result = export_service.export_feedback(db, operator=payload.operator)
+        return ExportTriggerResponse(**result)
+    finally:
+        db.close()
+
+
 @router.get("", response_model=ExportListResponse)
 def list_exports(
     _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],

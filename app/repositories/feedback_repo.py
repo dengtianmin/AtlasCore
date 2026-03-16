@@ -39,3 +39,12 @@ class FeedbackRepository:
             .order_by(FeedbackRecord.created_at.desc())
         )
         return list(db.execute(stmt).scalars().all())
+
+    def list_all(self, db: Session, *, limit: int = 100, offset: int = 0) -> list[FeedbackRecord]:
+        stmt = (
+            select(FeedbackRecord)
+            .order_by(FeedbackRecord.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(db.execute(stmt).scalars().all())

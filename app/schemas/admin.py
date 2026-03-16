@@ -19,6 +19,10 @@ class DocumentUploadResponse(BaseModel):
     content_type: str | None
     file_size: int | None
     created_by: UUID | None
+    created_at: datetime
+    last_sync_target: str | None = None
+    last_sync_status: str | None = None
+    last_sync_at: datetime | None = None
 
 
 class DocumentListResponse(BaseModel):
@@ -75,6 +79,8 @@ class GraphAdminStatusResponse(BaseModel):
     import_dir_exists: bool
     export_dir_exists: bool
     instance_local_path: str
+    instance_local_path_exists: bool
+    multi_instance_mode: str
 
 
 class GraphReloadResponse(BaseModel):

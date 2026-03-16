@@ -5,6 +5,7 @@
 - 确认容器通过 `PORT` 监听。
 - 使用 `/health` 作为平台基础健康检查。
 - 使用 `/health/ready` 查看配置、SQLite、图模块、导入导出摘要。
+- 使用 `/api/admin/system/status` 查看管理员联调状态摘要。
 - 关注启动日志中的事件：
   - `settings_init`
   - `sqlite_init`
@@ -27,6 +28,7 @@
 - `GRAPH_EXPORT_DIR`：图快照导出目录。
 - `GRAPH_INSTANCE_LOCAL_PATH`：当前实例运行中的图 SQLite 文件。
 - `GRAPH_SNAPSHOT_PATH`：可选的图快照路径摘要配置。
+- `DIFY_TIMEOUT_SECONDS`：AtlasCore 调用 Dify 聊天接口的超时秒数。
 
 ## 运行状态接口
 

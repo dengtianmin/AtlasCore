@@ -110,6 +110,7 @@ export default function AdminGraphPage() {
                   <div className="rounded-lg border bg-muted/40 p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">实例图库</p>
                     <p className="mt-2 break-all font-medium">{status.instance_local_path}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{status.instance_local_path_exists ? "实例本地图存在" : "实例本地图不存在"}</p>
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">导入目录</p>
@@ -121,6 +122,11 @@ export default function AdminGraphPage() {
                     <p className="mt-2 break-all font-medium">{status.export_dir}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{status.export_dir_exists ? "目录可用" : "目录不存在"}</p>
                   </div>
+                </div>
+                <div className="rounded-lg border bg-muted/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">多实例规则</p>
+                  <p className="mt-2 font-medium">{status.multi_instance_mode}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">每个实例只允许使用自己的本地 SQLite 图文件，不共享在线写库。</p>
                 </div>
                 {message ? <div className="rounded-lg border border-primary/20 bg-accent/50 px-4 py-3 text-sm">{message}</div> : null}
               </CardContent>

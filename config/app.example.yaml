@@ -50,5 +50,6 @@ integrations:
   dify:
     enabled: false
     base_url: null
+    timeout_seconds: 15
   jwt:
     enabled: true

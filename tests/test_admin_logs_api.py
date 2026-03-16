@@ -1,11 +1,13 @@
 import asyncio
 
+from app.api.v1.chat import service as chat_router_service
 from app.api.v1.admin_logs import get_log, list_logs
 from app.api.v1.chat import send_message, submit_feedback
 from app.auth.principal import Principal
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
+from app.integrations.dify import DifyChatResponse
 from app.schemas.chat import ChatFeedbackRequest, ChatMessageRequest
 
 
@@ -32,8 +34,22 @@ def _admin() -> Principal:
     return Principal(user_id="00000000-0000-0000-0000-000000000001", username="admin", roles=["admin"])
 
 
+class StubDifyClient:
+    def chat(self, payload):
+        return DifyChatResponse(
+            answer=f"Answer: {payload.query}",
+            source="dify",
+            sources=[{"title": "doc-1"}],
+            retrieved_context="ctx",
+            session_id=payload.session_id,
+            provider_message_id="msg-1",
+            metadata={},
+        )
+
+
 def test_admin_logs_list_and_detail(monkeypatch, tmp_path):
     _bootstrap_runtime(monkeypatch, tmp_path)
+    monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient())
     db = get_session_factory()()
     try:
         first = send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id="s-1"), db=db)
@@ -60,10 +76,12 @@ def test_admin_logs_list_and_detail(monkeypatch, tmp_path):
         assert listed.items[0].id == first.message_id
         assert listed.items[0].feedback is not None
         assert listed.items[0].feedback.liked is True
+        assert listed.items[0].feedback_count == 1
 
         detail = get_log(first.message_id, _=_admin(), db=db)
         assert detail.id == first.message_id
         assert detail.feedback is not None
+        assert detail.feedback_count == 1
 
         no_match = list_logs(
             _=_admin(),

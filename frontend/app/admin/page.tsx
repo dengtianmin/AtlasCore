@@ -12,11 +12,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { listDocuments } from "@/lib/api/documents";
 import { listExports } from "@/lib/api/exports";
 import { listAdminLogs } from "@/lib/api/logs";
-import { getHealth } from "@/lib/api/system";
+import { getAdminSystemStatus } from "@/lib/api/system";
 import { formatDateTime } from "@/lib/utils";
 
 export default function AdminDashboardPage() {
-  const healthQuery = useQuery({ queryKey: ["admin-health"], queryFn: getHealth });
+  const healthQuery = useQuery({ queryKey: ["admin-system-status"], queryFn: getAdminSystemStatus });
   const documentsQuery = useQuery({ queryKey: ["admin-documents"], queryFn: () => listDocuments(10, 0) });
   const exportsQuery = useQuery({ queryKey: ["admin-exports"], queryFn: listExports });
   const logsQuery = useQuery({ queryKey: ["admin-logs-summary"], queryFn: () => listAdminLogs() });
@@ -39,7 +39,11 @@ export default function AdminDashboardPage() {
         <SummaryCard title="文档数" value={documentsQuery.data?.items.length ?? 0} hint="当前页面拉取的最新文档样本" />
         <SummaryCard title="导出记录" value={exportsQuery.data?.items.length ?? 0} hint="CSV 导出历史" />
         <SummaryCard title="问答日志" value={logsQuery.data?.items.length ?? 0} hint="可进一步按条件筛选" />
-        <SummaryCard title="系统状态" value={healthQuery.data?.status ?? "unknown"} hint={healthQuery.data?.service} />
+        <SummaryCard
+          title="系统状态"
+          value={healthQuery.data?.app_ready ? "ready" : "not-ready"}
+          hint={`${healthQuery.data?.app_env ?? "unknown"} / graph ${healthQuery.data?.graph_loaded ? "loaded" : "idle"}`}
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">

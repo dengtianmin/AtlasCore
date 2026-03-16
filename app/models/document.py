@@ -1,6 +1,5 @@
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
-
-from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -26,3 +25,11 @@ class Document(Base):
     created_by: Mapped[UUID | None] = mapped_column(
         GUID(), ForeignKey("admin_accounts.id", ondelete="SET NULL"), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+    last_sync_target: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_sync_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

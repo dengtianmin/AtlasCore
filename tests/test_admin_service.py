@@ -34,6 +34,10 @@ def _doc(status: str) -> SimpleNamespace:
         content_type="text/plain",
         file_size=3,
         created_by=uuid4(),
+        created_at=now,
+        last_sync_target=None,
+        last_sync_status=None,
+        last_sync_at=None,
     )
 
 
@@ -62,6 +66,7 @@ def test_upload_document_creates_metadata(monkeypatch):
     assert captured["source_type"] == "upload"
     assert captured["created_by"] == admin_id
     assert captured["filename"] == "doc.txt"
+    assert "created_at" in captured
 
 
 def test_get_document_not_found():

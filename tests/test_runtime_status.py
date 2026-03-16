@@ -16,6 +16,8 @@ def test_runtime_status_service_tracks_graph_and_exports(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "GRAPH_INSTANCE_ID", "instance-test")
     monkeypatch.setattr(settings, "GRAPH_DB_VERSION", "v20260317")
     monkeypatch.setattr(settings, "GRAPH_ENABLED", True)
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
 
     service = RuntimeStatusService()
     service.mark_config_loaded()
@@ -27,8 +29,9 @@ def test_runtime_status_service_tracks_graph_and_exports(monkeypatch, tmp_path):
     service.record_graph_export({"status": "success", "filename": "export.db"})
     service.record_csv_export({"status": "success", "filename": "qa.csv"})
 
-    payload = service.get_status()
+    payload = service.get_admin_status()
 
+    assert payload["app_ready"] is True
     assert payload["config_loaded"] is True
     assert payload["sqlite_ready"] is True
     assert payload["migration_ready"] is True
@@ -40,7 +43,10 @@ def test_runtime_status_service_tracks_graph_and_exports(monkeypatch, tmp_path):
     assert payload["graph_instance_local_path_exists"] is False
     assert payload["graph_import_dir_readable"] is True
     assert payload["graph_export_dir_writable"] is True
-    assert payload["csv_export_dir_writable"] is True
+    assert payload["csv_export_ready"] is True
+    assert payload["admin_auth_ready"] is False
+    assert payload["document_module_ready"] is True
     assert payload["last_graph_import"]["filename"] == "import.db"
     assert payload["last_graph_export"]["filename"] == "export.db"
     assert payload["last_csv_export"]["filename"] == "qa.csv"
+    assert payload["multi_instance_rule"] == "no_shared_graph_sqlite"

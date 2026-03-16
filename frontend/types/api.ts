@@ -1,6 +1,22 @@
 export interface HealthStatus {
-  status: string;
-  service: string;
+  app_ready?: boolean;
+  status?: string;
+  sqlite_ready?: boolean;
+  dify_configured?: boolean;
+  dify_reachable?: boolean;
+  graph_enabled?: boolean;
+  graph_loaded?: boolean;
+  graph_node_count?: number;
+  graph_edge_count?: number;
+  graph_instance_id?: string;
+  graph_db_version?: string | null;
+  graph_instance_local_path_exists?: boolean;
+  csv_export_ready?: boolean;
+  admin_auth_ready?: boolean;
+  document_module_ready?: boolean;
+  current_mode?: string;
+  app_env?: string;
+  service?: string;
 }
 
 export interface RootInfo {
@@ -32,6 +48,10 @@ export interface ChatResponse {
   answer: string;
   source: string;
   sources: string[];
+  retrieved_context?: string | null;
+  status: string;
+  provider_message_id?: string | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -62,18 +82,26 @@ export interface GraphEdge {
 export interface GraphOverview {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  center?: GraphNode | null;
+  detail?: GraphNode | null;
+  metadata?: Record<string, unknown>;
   total_nodes: number;
   total_edges: number;
 }
 
 export interface GraphNodeDetails {
   node: GraphNode;
+  detail?: GraphNode | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GraphNeighbors {
   center_node_id: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  center?: GraphNode | null;
+  detail?: GraphNode | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GraphSummary {
@@ -87,11 +115,15 @@ export interface GraphSummary {
 
 export interface GraphAdminStatus extends GraphSummary {
   enabled: boolean;
+  instance_id: string;
+  graph_db_version: string | null;
   import_dir: string;
   export_dir: string;
   import_dir_exists: boolean;
   export_dir_exists: boolean;
   instance_local_path: string;
+  instance_local_path_exists: boolean;
+  multi_instance_mode: string;
 }
 
 export interface GraphFileOperation {
@@ -130,6 +162,10 @@ export interface DocumentRecord {
   content_type: string | null;
   file_size: number | null;
   created_by: string | null;
+  created_at: string;
+  last_sync_target: string | null;
+  last_sync_status: string | null;
+  last_sync_at: string | null;
 }
 
 export interface DocumentListResponse {

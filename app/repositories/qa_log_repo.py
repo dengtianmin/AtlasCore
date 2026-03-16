@@ -18,6 +18,9 @@ class QuestionAnswerLogRepository:
         created_at: datetime,
         session_id: str | None,
         source: str,
+        status: str,
+        provider_message_id: str | None,
+        error_code: str | None,
     ) -> QuestionAnswerLog:
         record = QuestionAnswerLog(
             question=question,
@@ -26,6 +29,9 @@ class QuestionAnswerLogRepository:
             created_at=created_at,
             session_id=session_id,
             source=source,
+            status=status,
+            provider_message_id=provider_message_id,
+            error_code=error_code,
         )
         db.add(record)
         db.flush()

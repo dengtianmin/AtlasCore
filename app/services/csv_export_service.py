@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger, log_event
 from app.repositories.export_record_repo import ExportRecordRepository
+from app.repositories.feedback_repo import FeedbackRepository
 from app.repositories.qa_log_repo import QuestionAnswerLogRepository
 from app.services.runtime_status_service import runtime_status_service
 
@@ -20,6 +21,7 @@ logger = get_logger(__name__)
 class CsvExportService:
     def __init__(self) -> None:
         self.qa_log_repo = QuestionAnswerLogRepository()
+        self.feedback_repo = FeedbackRepository()
         self.export_record_repo = ExportRecordRepository()
 
     def export_qa_logs(self, db: Session, *, operator: str) -> dict:
@@ -29,7 +31,7 @@ class CsvExportService:
         log_event(
             logger,
             logging.INFO,
-            "csv_export",
+            "csv_export_started",
             "started",
             export_type="qa_logs",
             operator=operator,
@@ -52,6 +54,9 @@ class CsvExportService:
                         "created_at",
                         "session_id",
                         "source",
+                        "status",
+                        "provider_message_id",
+                        "error_code",
                     ],
                 )
                 writer.writeheader()
@@ -65,12 +70,15 @@ class CsvExportService:
                             "created_at": record.created_at.isoformat(),
                             "session_id": record.session_id or "",
                             "source": record.source,
+                            "status": record.status,
+                            "provider_message_id": record.provider_message_id or "",
+                            "error_code": record.error_code or "",
                         }
                     )
             log_event(
                 logger,
                 logging.INFO,
-                "csv_export_write",
+                "csv_export_succeeded",
                 "success",
                 export_type="qa_logs",
                 target_path=str(file_path),
@@ -99,7 +107,7 @@ class CsvExportService:
             log_event(
                 logger,
                 logging.INFO,
-                "csv_export",
+                "csv_export_succeeded",
                 "success",
                 export_type="qa_logs",
                 target_path=str(file_path),
@@ -120,11 +128,108 @@ class CsvExportService:
             log_event(
                 logger,
                 logging.ERROR,
-                "csv_export",
+                "csv_export_failed",
                 "failed",
                 error_type="csv_export_error",
                 detail=str(exc),
                 export_type="qa_logs",
+                operator=operator,
+            )
+            raise
+
+    def export_feedback(self, db: Session, *, operator: str) -> dict:
+        started = perf_counter()
+        export_dir = Path(settings.CSV_EXPORT_DIR).expanduser()
+        export_dir.mkdir(parents=True, exist_ok=True)
+        log_event(
+            logger,
+            logging.INFO,
+            "csv_export_started",
+            "started",
+            export_type="feedback",
+            operator=operator,
+            target_dir=str(export_dir),
+        )
+
+        try:
+            records = self.feedback_repo.list_all(db, limit=100000, offset=0)
+            timestamp = datetime.now(UTC)
+            file_path = export_dir / f"feedback_{timestamp.strftime('%Y%m%d_%H%M%S')}.csv"
+            with file_path.open("w", encoding="utf-8", newline="") as csv_file:
+                writer = csv.DictWriter(
+                    csv_file,
+                    fieldnames=[
+                        "id",
+                        "qa_log_id",
+                        "rating",
+                        "liked",
+                        "comment",
+                        "source",
+                        "created_at",
+                    ],
+                )
+                writer.writeheader()
+                for record in records:
+                    writer.writerow(
+                        {
+                            "id": str(record.id),
+                            "qa_log_id": str(record.qa_log_id),
+                            "rating": record.rating if record.rating is not None else "",
+                            "liked": record.liked if record.liked is not None else "",
+                            "comment": record.comment or "",
+                            "source": record.source,
+                            "created_at": record.created_at.isoformat(),
+                        }
+                    )
+
+            export_record = self.export_record_repo.create(
+                db,
+                export_type="feedback",
+                export_time=timestamp,
+                record_count=len(records),
+                operator=operator,
+                file_path=str(file_path),
+            )
+            db.commit()
+            payload = self._to_payload(export_record, success=True)
+            runtime_status_service.record_csv_export(
+                {
+                    "status": "success",
+                    "export_type": "feedback",
+                    "filename": payload["filename"],
+                    "record_count": len(records),
+                    "operator": operator,
+                }
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "csv_export_succeeded",
+                "success",
+                export_type="feedback",
+                target_path=str(file_path),
+                record_count=len(records),
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
+            return payload
+        except Exception as exc:
+            runtime_status_service.record_error(error_type="csv_export_error", detail=str(exc))
+            runtime_status_service.record_csv_export(
+                {
+                    "status": "failed",
+                    "export_type": "feedback",
+                    "operator": operator,
+                    "detail": str(exc),
+                }
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "csv_export_failed",
+                "failed",
+                error_type="csv_export_error",
+                detail=str(exc),
+                export_type="feedback",
                 operator=operator,
             )
             raise

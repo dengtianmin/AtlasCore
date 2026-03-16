@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     )
     DIFY_API_KEY: str | None = None
     DIFY_API_KEY_SECRET_NAME: str | None = None
+    DIFY_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
 
     API_V1_PREFIX: str = ""
@@ -382,6 +383,7 @@ class Settings(BaseSettings):
             "GRAPH_INSTANCE_ID": graph_payload.get("instance_id"),
             "GRAPH_DB_VERSION": graph_payload.get("db_version"),
             "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
+            "DIFY_TIMEOUT_SECONDS": integrations_payload.get("dify", {}).get("timeout_seconds"),
         }
         normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
         return _deep_merge(normalized_payload, values)

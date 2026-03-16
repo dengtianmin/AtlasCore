@@ -113,6 +113,9 @@ export default function AdminDocumentsPage() {
                     <p>大小：{formatFileSize(detailQuery.data.file_size)}</p>
                     <p>图谱同步：{detailQuery.data.synced_to_graph ? "已同步" : "未同步"}</p>
                     <p>Dify 同步：{detailQuery.data.synced_to_dify ? "已同步" : "未同步"}</p>
+                    <p>最近同步目标：{detailQuery.data.last_sync_target ?? "无"}</p>
+                    <p>最近同步状态：{detailQuery.data.last_sync_status ?? "无"}</p>
+                    <p>最近同步时间：{detailQuery.data.last_sync_at ? formatDateTime(detailQuery.data.last_sync_at) : "无"}</p>
                   </div>
                 </>
               ) : (

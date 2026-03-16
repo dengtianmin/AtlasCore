@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GraphNode(BaseModel):
@@ -22,6 +22,9 @@ class GraphEdge(BaseModel):
 class GraphDataResponse(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+    center: GraphNode | None = None
+    detail: GraphNode | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class GraphOverviewResponse(GraphDataResponse):
@@ -47,15 +50,14 @@ class GraphNodeListResponse(BaseModel):
 
 class NodeDetailsResponse(BaseModel):
     node: GraphNode
+    detail: GraphNode | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class NodeNeighborsResponse(GraphDataResponse):
     center_node_id: str
-    center: GraphNode | None = None
 
 
 class NodeHopsResponse(GraphDataResponse):
     center_node_id: str
     depth: int
-    center: GraphNode | None = None
-    detail: GraphNode | None = None

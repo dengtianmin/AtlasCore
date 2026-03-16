@@ -49,7 +49,13 @@ class AdminLogService:
                 continue
             if rating is not None and (latest_feedback is None or latest_feedback["rating"] != rating):
                 continue
-            filtered.append({**record, "feedback": latest_feedback})
+            filtered.append(
+                {
+                    **record,
+                    "feedback": latest_feedback,
+                    "feedback_count": len(feedback_items),
+                }
+            )
 
         return {"items": filtered[offset : offset + limit]}
 
@@ -59,4 +65,7 @@ class AdminLogService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QA log not found")
         feedback_items = self.feedback_service.list_feedback(db, qa_log_id=record_id)["items"]
         latest_feedback = feedback_items[0] if feedback_items else None
-        return {**record, "feedback": latest_feedback}
+        return {**record, "feedback": latest_feedback, "feedback_count": len(feedback_items)}
+
+    def list_feedback(self, db: Session, *, limit: int, offset: int) -> dict:
+        return self.feedback_service.list_all_feedback(db, limit=limit, offset=offset)
