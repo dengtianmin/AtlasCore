@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.graph.db import get_graph_session_factory, initialize_graph_database, reset_graph_db_state
 from app.models.graph_edge import GraphEdge
 from app.models.graph_node import GraphNode
+from app.services.runtime_status_service import runtime_status_service
 from app.services.graph_service import _runtime
 
 
@@ -23,6 +24,7 @@ def _bootstrap(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "GRAPH_ENABLED", True)
     reset_graph_db_state()
     _runtime.reset()
+    runtime_status_service.reset()
     initialize_graph_database()
 
 
@@ -156,6 +158,8 @@ def test_graph_export_generates_sqlite_snapshot(monkeypatch, tmp_path):
     assert payload.node_count == 2
     assert Path(payload.file_path).exists()
     assert str(download.path) == payload.file_path
+    status = runtime_status_service.get_status()
+    assert status["last_graph_export"]["filename"] == payload.filename
 
 
 def test_graph_import_reloads_runtime(monkeypatch, tmp_path):
@@ -173,6 +177,9 @@ def test_graph_import_reloads_runtime(monkeypatch, tmp_path):
     assert payload.current_version is not None
     assert summary.node_count == 1
     assert summary.current_version == payload.current_version
+    status = runtime_status_service.get_status()
+    assert status["last_graph_import"]["filename"] == "incoming.db"
+    assert status["graph_loaded"] is True
 
 
 def test_graph_import_rejects_invalid_file(monkeypatch, tmp_path):
@@ -184,5 +191,8 @@ def test_graph_import_rejects_invalid_file(monkeypatch, tmp_path):
     except HTTPException as exc:
         assert exc.status_code == 400
         assert "Invalid SQLite file" in exc.detail
+        status = runtime_status_service.get_status()
+        assert status["last_graph_import"]["status"] == "failed"
+        assert status["last_error"]["error_type"] == "graph_import_error"
     else:
         raise AssertionError("Expected invalid graph SQLite import to be rejected")

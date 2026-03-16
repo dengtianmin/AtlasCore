@@ -12,6 +12,7 @@ from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
 from app.schemas.admin import ExportTriggerRequest
 from app.schemas.debug import QuestionAnswerLogCreateRequest
+from app.services.runtime_status_service import runtime_status_service
 
 
 async def _run_lifespan() -> None:
@@ -30,6 +31,7 @@ def _bootstrap_runtime(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "INITIAL_ADMIN_USERNAME", "admin")
     monkeypatch.setattr(settings, "INITIAL_ADMIN_PASSWORD", "StrongPass123!")
     reset_db_state()
+    runtime_status_service.reset()
     asyncio.run(_run_lifespan())
 
 
@@ -72,6 +74,9 @@ def test_root_and_export_api_flow(monkeypatch, tmp_path):
         assert response.media_type == "text/csv"
         assert Path(response.path).exists()
         assert "What is AtlasCore?" in Path(response.path).read_text(encoding="utf-8")
+        status = runtime_status_service.get_status()
+        assert status["last_csv_export"]["filename"] == export_payload.filename
+        assert status["last_csv_export"]["status"] == "success"
 
         root_after = root(db=db)
         assert root_after["latest_export"]["filename"] == export_payload.filename
