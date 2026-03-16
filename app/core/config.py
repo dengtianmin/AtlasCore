@@ -1,7 +1,44 @@
-from typing import Literal
+import json
+import os
+from pathlib import Path
+from typing import Any, Literal
 
+import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_config_file(path_value: str | None) -> dict[str, Any]:
+    if not path_value:
+        return {}
+
+    path = Path(path_value).expanduser()
+    if not path.exists():
+        raise ValueError(f"APP_CONFIG_PATH does not exist: {path}")
+
+    suffix = path.suffix.lower()
+    raw_text = path.read_text(encoding="utf-8")
+    if suffix == ".json":
+        payload = json.loads(raw_text)
+    elif suffix in {".yaml", ".yml"}:
+        payload = yaml.safe_load(raw_text) or {}
+    else:
+        raise ValueError("APP_CONFIG_PATH must point to a .json, .yaml, or .yml file")
+
+    if not isinstance(payload, dict):
+        raise ValueError("Config file root must be a JSON/YAML object")
+
+    return payload
 
 
 class Settings(BaseSettings):
@@ -10,9 +47,12 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "staging", "production", "test"] = "development"
     PORT: int = Field(default=8000, ge=1, le=65535)
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    APP_CONFIG_PATH: str | None = None
+    SQLITE_PATH: str = "./data/atlascore.db"
+    CSV_EXPORT_DIR: str = "./data/exports"
 
     JWT_SECRET: str | None = None
-    DATABASE_URL: str | None = None
+    INITIAL_ADMIN_PASSWORD: str | None = None
     NEO4J_URI: str | None = None
     NEO4J_DATABASE: str = "neo4j"
     NEO4J_USERNAME: str | None = None
@@ -23,6 +63,12 @@ class Settings(BaseSettings):
 
     API_V1_PREFIX: str = ""
     HOST: str = "0.0.0.0"
+    INITIAL_ADMIN_USERNAME: str | None = None
+    PAGE_DEFAULTS: dict[str, Any] = Field(default_factory=dict)
+    FEATURE_FLAGS: dict[str, Any] = Field(default_factory=dict)
+    EXPORT_RULES: dict[str, Any] = Field(default_factory=dict)
+    FIXED_MAPPINGS: dict[str, Any] = Field(default_factory=dict)
+    RESERVED_INTEGRATIONS: dict[str, Any] = Field(default_factory=dict)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -38,6 +84,42 @@ class Settings(BaseSettings):
     @property
     def is_debug(self) -> bool:
         return self.APP_ENV in {"development", "test"}
+
+    @property
+    def sqlite_url(self) -> str:
+        sqlite_path = Path(self.SQLITE_PATH).expanduser()
+        return f"sqlite:///{sqlite_path}"
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_config_file(cls, data: Any) -> Any:
+        values = dict(data) if isinstance(data, dict) else {}
+        config_path = values.get("APP_CONFIG_PATH") or os.getenv("APP_CONFIG_PATH")
+        file_payload = _load_config_file(config_path)
+
+        app_payload = file_payload.get("app", {})
+        admin_payload = file_payload.get("admin", {})
+        defaults_payload = file_payload.get("defaults", {})
+        export_payload = file_payload.get("export", {})
+        integrations_payload = file_payload.get("integrations", {})
+
+        normalized_payload = {
+            "APP_NAME": app_payload.get("name"),
+            "APP_VERSION": app_payload.get("version"),
+            "APP_ENV": app_payload.get("env"),
+            "HOST": app_payload.get("host"),
+            "PORT": app_payload.get("port"),
+            "LOG_LEVEL": app_payload.get("log_level"),
+            "API_V1_PREFIX": app_payload.get("api_v1_prefix"),
+            "INITIAL_ADMIN_USERNAME": admin_payload.get("initial_username"),
+            "PAGE_DEFAULTS": defaults_payload.get("page", {}),
+            "FEATURE_FLAGS": defaults_payload.get("features", {}),
+            "EXPORT_RULES": export_payload.get("rules", {}),
+            "FIXED_MAPPINGS": defaults_payload.get("mappings", {}),
+            "RESERVED_INTEGRATIONS": integrations_payload,
+        }
+        normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
+        return _deep_merge(normalized_payload, values)
 
     @model_validator(mode="after")
     def validate_critical_config(self) -> "Settings":

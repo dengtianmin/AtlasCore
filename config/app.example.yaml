@@ -1,0 +1,39 @@
+app:
+  name: AtlasCore API
+  version: 0.1.0
+  env: development
+  host: 0.0.0.0
+  port: 8000
+  log_level: INFO
+  api_v1_prefix: ""
+
+admin:
+  initial_username: admin
+
+defaults:
+  page:
+    admin_dashboard_size: 20
+    document_list_size: 50
+  features:
+    enable_graph_api: true
+    enable_debug_endpoints: true
+    enable_csv_export: true
+  mappings:
+    document_source_labels:
+      upload: Uploaded file
+      dify: Dify knowledge base
+
+export:
+  rules:
+    qa_logs:
+      delimiter: ","
+      include_header: true
+
+integrations:
+  neo4j:
+    enabled: false
+    database: neo4j
+  dify:
+    enabled: false
+  jwt:
+    enabled: true
