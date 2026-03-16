@@ -14,10 +14,12 @@ defaults:
   page:
     admin_dashboard_size: 20
     document_list_size: 50
+    root_download_entry: latest_export
   features:
     enable_graph_api: true
     enable_debug_endpoints: true
     enable_csv_export: true
+    enable_root_debug_page: true
   mappings:
     document_source_labels:
       upload: Uploaded file
@@ -28,6 +30,7 @@ export:
     qa_logs:
       delimiter: ","
       include_header: true
+      filename_prefix: qa_logs
 
 integrations:
   neo4j:

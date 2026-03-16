@@ -1,4 +1,4 @@
-"""initial schema
+"""sqlite first initial schema
 
 Revision ID: 20260313_0001
 Revises:
@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -21,77 +20,91 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table(
-        "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("email", sa.String(length=255), nullable=False),
+        "admin_accounts",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("username", sa.String(length=100), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
-        sa.UniqueConstraint("email", name=op.f("uq_users_email")),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_admin_accounts")),
+        sa.UniqueConstraint("username", name=op.f("uq_admin_accounts_username")),
     )
-    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=False)
-
-    op.create_table(
-        "roles",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(length=64), nullable=False),
-        sa.Column("description", sa.String(length=255), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_roles")),
-        sa.UniqueConstraint("name", name=op.f("uq_roles_name")),
-    )
-    op.create_index(op.f("ix_roles_name"), "roles", ["name"], unique=False)
+    op.create_index(op.f("ix_admin_accounts_username"), "admin_accounts", ["username"], unique=False)
 
     op.create_table(
         "documents",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("title", sa.String(length=255), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("filename", sa.String(length=255), nullable=False),
         sa.Column("source_type", sa.String(length=50), nullable=False),
-        sa.Column("source_uri", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["created_by"], ["users.id"], name=op.f("fk_documents_created_by_users"), ondelete="SET NULL"),
+        sa.Column("uploaded_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("synced_to_dify", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("synced_to_graph", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("note", sa.Text(), nullable=True),
+        sa.Column("source_uri", sa.Text(), nullable=True),
+        sa.Column("content_type", sa.String(length=120), nullable=True),
+        sa.Column("file_size", sa.Integer(), nullable=True),
+        sa.Column("created_by", sa.String(length=36), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["created_by"],
+            ["admin_accounts.id"],
+            name=op.f("fk_documents_created_by_admin_accounts"),
+            ondelete="SET NULL",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_documents")),
     )
 
     op.create_table(
-        "user_roles",
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("role_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("assigned_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], name=op.f("fk_user_roles_role_id_roles"), ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], name=op.f("fk_user_roles_user_id_users"), ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("user_id", "role_id", name=op.f("pk_user_roles")),
+        "qa_logs",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("question", sa.Text(), nullable=False),
+        sa.Column("retrieved_context", sa.Text(), nullable=True),
+        sa.Column("answer", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("session_id", sa.String(length=128), nullable=True),
+        sa.Column("source", sa.String(length=64), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_qa_logs")),
     )
+    op.create_index(op.f("ix_qa_logs_session_id"), "qa_logs", ["session_id"], unique=False)
 
     op.create_table(
-        "sync_records",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("document_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("target_system", sa.String(length=64), nullable=False),
-        sa.Column("sync_status", sa.String(length=32), nullable=False),
-        sa.Column("external_id", sa.String(length=255), nullable=True),
-        sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("synced_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["document_id"], ["documents.id"], name=op.f("fk_sync_records_document_id_documents"), ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_sync_records")),
+        "feedback_records",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("qa_log_id", sa.String(length=36), nullable=False),
+        sa.Column("rating", sa.Integer(), nullable=True),
+        sa.Column("liked", sa.Boolean(), nullable=True),
+        sa.Column("comment", sa.Text(), nullable=True),
+        sa.Column("source", sa.String(length=64), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["qa_log_id"],
+            ["qa_logs.id"],
+            name=op.f("fk_feedback_records_qa_log_id_qa_logs"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_feedback_records")),
     )
-    op.create_index(op.f("ix_sync_records_document_id"), "sync_records", ["document_id"], unique=False)
+    op.create_index(op.f("ix_feedback_records_qa_log_id"), "feedback_records", ["qa_log_id"], unique=False)
+
+    op.create_table(
+        "export_records",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("export_type", sa.String(length=64), nullable=False),
+        sa.Column("export_time", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("record_count", sa.Integer(), nullable=False),
+        sa.Column("operator", sa.String(length=100), nullable=False),
+        sa.Column("file_path", sa.String(length=512), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_export_records")),
+    )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_sync_records_document_id"), table_name="sync_records")
-    op.drop_table("sync_records")
-    op.drop_table("user_roles")
+    op.drop_table("export_records")
+    op.drop_index(op.f("ix_feedback_records_qa_log_id"), table_name="feedback_records")
+    op.drop_table("feedback_records")
+    op.drop_index(op.f("ix_qa_logs_session_id"), table_name="qa_logs")
+    op.drop_table("qa_logs")
     op.drop_table("documents")
-    op.drop_index(op.f("ix_roles_name"), table_name="roles")
-    op.drop_table("roles")
-    op.drop_index(op.f("ix_users_email"), table_name="users")
-    op.drop_table("users")
+    op.drop_index(op.f("ix_admin_accounts_username"), table_name="admin_accounts")
+    op.drop_table("admin_accounts")

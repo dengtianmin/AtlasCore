@@ -52,9 +52,11 @@ class ExportRequest(BaseModel):
 
 
 class ExportResponse(BaseModel):
-    id: UUID
+    success: bool
+    export_id: UUID
     export_type: str
     export_time: datetime
     record_count: int
     operator: str
-    file_path: str
+    filename: str
+    download_url: str

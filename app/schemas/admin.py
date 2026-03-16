@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.admin.document_status import DocumentStatus
 
@@ -36,3 +36,25 @@ class SyncTriggerResponse(BaseModel):
     status: DocumentStatus
     target_system: str
     message: str
+
+
+class ExportTriggerRequest(BaseModel):
+    operator: str = Field(default="system", min_length=1, max_length=100)
+
+
+class ExportRecordResponse(BaseModel):
+    export_id: UUID
+    export_type: str
+    export_time: datetime
+    record_count: int
+    operator: str
+    filename: str
+    download_url: str
+
+
+class ExportListResponse(BaseModel):
+    items: list[ExportRecordResponse]
+
+
+class ExportTriggerResponse(ExportRecordResponse):
+    success: bool

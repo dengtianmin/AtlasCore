@@ -61,9 +61,11 @@ def test_debug_qa_log_flow(monkeypatch, tmp_path):
     assert feedback.qa_log_id == created.id
     assert len(feedback_list.items) == 1
     assert feedback_list.items[0].comment == "Helpful answer"
+    assert exported.success is True
     assert exported.record_count == 1
     assert exported.operator == "debug-admin"
-    assert Path(exported.file_path).exists()
+    assert exported.download_url.endswith(exported.filename)
+    assert Path(settings.CSV_EXPORT_DIR, exported.filename).exists()
 
 
 def test_lifespan_bootstraps_admin_account(monkeypatch, tmp_path):

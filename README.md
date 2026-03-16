@@ -1,6 +1,6 @@
 # AtlasCore API
 
-AtlasCore 现在处于“Azure 第六步完成”状态：
+AtlasCore 现在处于“Azure 第七步完成”状态：
 - Dify 仍负责知识库问答主链路和最终答案生成
 - AtlasCore 负责管理员认证、文档元数据、图谱接口占位、问答日志、反馈/导出基础能力
 - 运行期主存储为 SQLite
@@ -19,6 +19,7 @@ AtlasCore 现在处于“Azure 第六步完成”状态：
 - 反馈记录表
 - 导出记录表
 - 问答日志 CSV 导出
+- 面向未来前端的导出触发、列表、下载 API
 - 最小验证接口
 
 ### 本步明确不做
@@ -178,17 +179,16 @@ curl -s -X POST http://127.0.0.1:${PORT:-8000}/debug/qa-logs/<qa_log_id>/feedbac
 curl -s http://127.0.0.1:${PORT:-8000}/debug/qa-logs/<qa_log_id>/feedback
 ```
 
-### 导出问答日志 CSV
+### 访问 root 调试入口
 
 ```bash
-curl -s -X POST http://127.0.0.1:${PORT:-8000}/debug/exports/qa-logs \
-  -H 'Content-Type: application/json' \
-  -d '{"operator":"local-admin"}'
+curl -s http://127.0.0.1:${PORT:-8000}/
 ```
 
-结果：
-- CSV 文件会写入 `CSV_EXPORT_DIR`
-- 导出记录会写入 SQLite 的 `export_records` 表
+返回：
+- `health_url`
+- 未来前端可调用的导出接口地址
+- 最近一次导出文件的下载地址
 
 ### 管理员登录验证
 
@@ -204,6 +204,50 @@ curl -s -X POST http://127.0.0.1:${PORT:-8000}/auth/login \
 说明：
 - `admin` 来自示例配置文件中的 `admin.initial_username`
 - 密码来自环境变量 `INITIAL_ADMIN_PASSWORD`
+
+把响应里的 `access_token` 保存为环境变量：
+
+```bash
+export ACCESS_TOKEN='<your-access-token>'
+```
+
+### 触发正式导出 API
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/api/admin/exports/qa-logs \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"operator":"local-admin"}'
+```
+
+期望：
+- CSV 文件写入 `CSV_EXPORT_DIR`
+- 导出记录写入 SQLite 的 `export_records` 表
+- 返回 `filename` 和 `download_url`
+
+### 查询导出列表
+
+```bash
+curl -s http://127.0.0.1:${PORT:-8000}/api/admin/exports \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+### 下载导出的 CSV
+
+```bash
+curl -OJ http://127.0.0.1:${PORT:-8000}/api/admin/exports/download/<filename> \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+### 兼容的 debug 导出接口
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/debug/exports/qa-logs \
+  -H 'Content-Type: application/json' \
+  -d '{"operator":"local-admin"}'
+```
+
+这个接口继续保留给联调和本地验证使用，但未来前端应优先接 `/api/admin/exports/*`。
 
 ## 6. Docker 运行
 
@@ -243,8 +287,11 @@ docker run --rm -p 8000:8000 \
 - `app/models/`
 - `app/repositories/`
 - `app/services/`
+- `app/api/v1/admin_exports.py`
+- `app/api/v1/root.py`
 - `app/api/v1/debug.py`
 - `config/app.example.yaml`
+- `alembic/env.py`
 
 ### 当前核心表
 - `admin_accounts`
@@ -258,6 +305,9 @@ docker run --rm -p 8000:8000 \
 ### 第七步预留
 - SQLite 路径和导出目录都可通过环境变量注入，适合 App Service
 - 导出能力已经有服务层和记录表，可继续接后台管理界面
+- 未来前端按钮可以先调用 `POST /api/admin/exports/qa-logs`
+- 然后直接使用返回值中的 `download_url`
+- 或从 `GET /api/admin/exports` 列表里读取 `download_url`
 - 启动期初始化逻辑已具备，可继续加更正式的 bootstrap/migration 流程
 
 ### 第八步预留

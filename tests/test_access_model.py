@@ -26,6 +26,9 @@ def test_admin_routes_still_require_auth_dependencies():
     dependencies = _route_dependencies_by_path()
 
     assert len(dependencies["/admin/ping"]) == 1
+    assert len(dependencies["/api/admin/exports/qa-logs"]) == 1
+    assert len(dependencies["/api/admin/exports"]) == 1
+    assert len(dependencies["/api/admin/exports/download/{filename}"]) == 1
     assert len(dependencies["/auth/me"]) == 1
 
 
