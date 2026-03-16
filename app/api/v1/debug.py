@@ -10,15 +10,20 @@ from app.db.session import get_db_session
 from app.schemas.debug import (
     ExportRequest,
     ExportResponse,
+    FeedbackCreateRequest,
+    FeedbackListResponse,
+    FeedbackResponse,
     QuestionAnswerLogCreateRequest,
     QuestionAnswerLogListResponse,
     QuestionAnswerLogResponse,
 )
 from app.services.csv_export_service import CsvExportService
+from app.services.feedback_service import FeedbackService
 from app.services.qa_log_service import QuestionAnswerLogService
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 qa_log_service = QuestionAnswerLogService()
+feedback_service = FeedbackService()
 csv_export_service = CsvExportService()
 
 
@@ -37,8 +42,6 @@ def create_qa_log(
             question=payload.question,
             retrieved_context=payload.retrieved_context,
             answer=payload.answer,
-            rating=payload.rating,
-            liked=payload.liked,
             session_id=payload.session_id,
             source=payload.source,
         )
@@ -63,6 +66,32 @@ def get_qa_log(
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QA log not found")
     return QuestionAnswerLogResponse(**payload)
+
+
+@router.post("/qa-logs/{record_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
+def create_feedback(
+    record_id: UUID,
+    payload: FeedbackCreateRequest,
+    db: Annotated[Session, Depends(get_session)],
+) -> FeedbackResponse:
+    return FeedbackResponse(
+        **feedback_service.create_feedback(
+            db,
+            qa_log_id=record_id,
+            rating=payload.rating,
+            liked=payload.liked,
+            comment=payload.comment,
+            source=payload.source,
+        )
+    )
+
+
+@router.get("/qa-logs/{record_id}/feedback", response_model=FeedbackListResponse)
+def list_feedback(
+    record_id: UUID,
+    db: Annotated[Session, Depends(get_session)],
+) -> FeedbackListResponse:
+    return FeedbackListResponse(**feedback_service.list_feedback(db, qa_log_id=record_id))
 
 
 @router.post("/exports/qa-logs", response_model=ExportResponse)

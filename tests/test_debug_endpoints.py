@@ -4,10 +4,11 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app.api.v1.debug import create_qa_log, export_qa_logs, get_qa_log, list_qa_logs
+from app.api.v1.debug import create_feedback, list_feedback
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
-from app.schemas.debug import ExportRequest, QuestionAnswerLogCreateRequest
+from app.schemas.debug import ExportRequest, FeedbackCreateRequest, QuestionAnswerLogCreateRequest
 from app.services.auth_service import AuthService
 
 
@@ -32,15 +33,24 @@ def test_debug_qa_log_flow(monkeypatch, tmp_path):
                 question="What is AtlasCore?",
                 retrieved_context="AtlasCore is an Azure backend.",
                 answer="AtlasCore is the Azure backend layer.",
-                rating=5,
-                liked=True,
                 session_id="session-1",
                 source="dify",
             ),
             db=db,
         )
+        feedback = create_feedback(
+            record_id=created.id,
+            payload=FeedbackCreateRequest(
+                rating=5,
+                liked=True,
+                comment="Helpful answer",
+                source="anonymous",
+            ),
+            db=db,
+        )
         listed = list_qa_logs(db=db, limit=50, offset=0)
         fetched = get_qa_log(record_id=created.id, db=db)
+        feedback_list = list_feedback(record_id=created.id, db=db)
         exported = export_qa_logs(ExportRequest(operator="debug-admin"), db=db)
     finally:
         db.close()
@@ -48,6 +58,9 @@ def test_debug_qa_log_flow(monkeypatch, tmp_path):
     assert created.question == "What is AtlasCore?"
     assert len(listed.items) == 1
     assert fetched.id == created.id
+    assert feedback.qa_log_id == created.id
+    assert len(feedback_list.items) == 1
+    assert feedback_list.items[0].comment == "Helpful answer"
     assert exported.record_count == 1
     assert exported.operator == "debug-admin"
     assert Path(exported.file_path).exists()

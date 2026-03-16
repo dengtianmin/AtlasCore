@@ -16,6 +16,7 @@ AtlasCore 现在处于“Azure 第六步完成”状态：
 - 可选的初始管理员初始化
 - 文档元数据表
 - 问答日志表
+- 反馈记录表
 - 导出记录表
 - 问答日志 CSV 导出
 - 最小验证接口
@@ -74,6 +75,7 @@ AtlasCore 现在处于“Azure 第六步完成”状态：
 ### SQLite 职责
 - 作为单实例 AtlasCore 的运行期主存储
 - 保存管理员账号、文档元数据、问答日志、导出记录
+- 保存独立反馈记录
 - 适合 Azure App Service 第七步前的轻量部署方式
 
 ### CSV 职责
@@ -157,6 +159,25 @@ curl -s -X POST http://127.0.0.1:${PORT:-8000}/debug/qa-logs \
 curl -s http://127.0.0.1:${PORT:-8000}/debug/qa-logs
 ```
 
+### 写入反馈记录
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/debug/qa-logs/<qa_log_id>/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "rating":5,
+    "liked":true,
+    "comment":"回答有帮助",
+    "source":"anonymous"
+  }'
+```
+
+### 查询问答日志对应反馈
+
+```bash
+curl -s http://127.0.0.1:${PORT:-8000}/debug/qa-logs/<qa_log_id>/feedback
+```
+
 ### 导出问答日志 CSV
 
 ```bash
@@ -229,6 +250,7 @@ docker run --rm -p 8000:8000 \
 - `admin_accounts`
 - `documents`
 - `qa_logs`
+- `feedback_records`
 - `export_records`
 
 ## 8. 为后续步骤预留的点
@@ -263,4 +285,5 @@ pytest -q
 - 管理员密码/JWT
 - 文档管理服务
 - 问答日志写入与查询
+- 独立反馈记录写入与查询
 - CSV 导出记录
