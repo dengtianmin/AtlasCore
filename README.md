@@ -4,12 +4,13 @@ AtlasCore 当前同时包含：
 - FastAPI 后端：管理员认证、文档管理、图谱浏览、问答日志、反馈与 CSV 导出
 - Next.js 前端：工作台、聊天页、图谱页、管理员后台
 
-AtlasCore 现在处于“Azure 第七步完成”状态：
+AtlasCore 现在处于“步骤八：轻量图模块完成”状态：
 - Dify 仍负责知识库问答主链路和最终答案生成
-- AtlasCore 负责管理员认证、文档元数据、图谱接口占位、问答日志、反馈/导出基础能力
+- AtlasCore 负责管理员认证、文档元数据、图谱接口、问答日志、反馈/导出基础能力
 - 运行期主存储为 SQLite
 - 导出格式为 CSV
-- Neo4j / Dify / JWT 敏感配置继续通过环境变量预留，不在这一步做完整接入
+- 图谱底层已切换为 SQLite + Python 图运行层
+- `NEO4J_*` 仅为后续集成预留，不参与当前图模块运行
 
 ## 1. 当前架构边界
 
@@ -24,13 +25,15 @@ AtlasCore 现在处于“Azure 第七步完成”状态：
 - 导出记录表
 - 问答日志 CSV 导出
 - 面向未来前端的导出触发、列表、下载 API
+- 轻量图 SQLite 存储
+- 节点列表、详情、一跳邻居、局部子图查询
+- 图 SQLite 文件导入、导出与重载
 - 最小验证接口
 
 ### 本步明确不做
 - 普通用户登录
 - 多角色权限系统
 - 基础 RAG 主链路迁入 AtlasCore
-- 完整 Neo4j 接入
 - 完整 Dify API 联调
 - Key Vault / Managed Identity
 - 多实例并发写同一 SQLite
@@ -53,8 +56,10 @@ AtlasCore 现在处于“Azure 第七步完成”状态：
   - 固定映射项
 - `export.rules`
   - 导出规则占位
+- `graph.*`
+  - 轻量图查询默认值、导入导出目录、实例 SQLite 文件路径
 - `integrations.*`
-  - Neo4j / Dify / JWT 的非敏感占位配置
+  - Neo4j / Dify / JWT 的非敏感占位配置，其中 Neo4j 当前仅预留
 
 ### 环境变量字段
 环境变量负责运行环境差异和敏感项：
@@ -65,15 +70,23 @@ AtlasCore 现在处于“Azure 第七步完成”状态：
 | `SQLITE_PATH` | SQLite 文件路径 | 是 |
 | `CSV_EXPORT_DIR` | CSV 导出目录 | 是 |
 | `DOCUMENT_LOCAL_STORAGE_DIR` | 本地文档上传目录 | 是 |
+| `GRAPH_ENABLED` | 是否启用轻量图模块 | 是 |
+| `GRAPH_DEFAULT_LIMIT` | 图谱列表默认限制 | 是 |
+| `GRAPH_MAX_NEIGHBORS` | 邻居查询最大返回量 | 是 |
+| `GRAPH_RELOAD_ON_START` | 启动时是否重载图 | 是 |
+| `GRAPH_EXPORT_DIR` | 图 SQLite 导出目录 | 是 |
+| `GRAPH_IMPORT_DIR` | 图 SQLite 导入目录 | 是 |
+| `GRAPH_INSTANCE_LOCAL_PATH` | 当前实例图 SQLite 文件路径 | 是 |
+| `GRAPH_SNAPSHOT_PATH` | 图快照路径 | 是 |
 | `INITIAL_ADMIN_PASSWORD` | 初始管理员密码 | 是，且必须走环境变量 |
 | `JWT_SECRET` | JWT 密钥 | 是 |
-| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 预留配置 | 仅预留 |
+| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` | Neo4j 预留配置 | 仅预留，不参与当前轻量图运行 |
 | `DIFY_BASE_URL` / `DIFY_API_KEY` | Dify 预留配置 | 仅预留 |
 
 说明：
 - 初始管理员用户名可以放配置文件。
 - 初始管理员密码不写入配置文件，避免明文落盘。
-- 这一步不要求设置 Neo4j / Dify 环境变量，保留给后续步骤。
+- 当前步骤不要求设置 Neo4j / Dify 环境变量。
 
 ## 3. 数据职责
 
@@ -111,6 +124,13 @@ export APP_CONFIG_PATH=/home/Project/AtlasCore/config/app.example.yaml
 export SQLITE_PATH=/home/Project/AtlasCore/data/atlascore.db
 export CSV_EXPORT_DIR=/home/Project/AtlasCore/data/exports
 export DOCUMENT_LOCAL_STORAGE_DIR=/home/Project/AtlasCore/data/uploads
+export GRAPH_ENABLED=true
+export GRAPH_DEFAULT_LIMIT=100
+export GRAPH_MAX_NEIGHBORS=200
+export GRAPH_RELOAD_ON_START=true
+export GRAPH_EXPORT_DIR=/home/Project/AtlasCore/data/graph_exports
+export GRAPH_IMPORT_DIR=/home/Project/AtlasCore/data/graph_imports
+export GRAPH_INSTANCE_LOCAL_PATH=/home/Project/AtlasCore/data/atlascore_graph.db
 export INITIAL_ADMIN_PASSWORD='StrongPass123!'
 export JWT_SECRET='local-dev-secret'
 ```
@@ -159,6 +179,14 @@ npm run dev
 - `http://127.0.0.1:3000/`
 - 管理员登录页：`http://127.0.0.1:3000/admin/login`
 
+### 本地跨域说明
+
+后端已内置本地联调所需的 CORS 配置，当前允许的前端源为：
+- `http://127.0.0.1:3000`
+- `http://localhost:3000`
+
+因此本地运行 `Next.js(3000) -> FastAPI(8000)` 时，登录、聊天、导出等浏览器请求可以直接跨域访问 AtlasCore API。
+
 ## 6. 前端页面与接口对齐
 
 当前前端已实现：
@@ -170,6 +198,10 @@ npm run dev
 - `/admin/documents` 文档管理页，对接 `/admin/documents*`
 - `/admin/logs` 问答日志页，对接 `/api/admin/logs*`
 - `/admin/exports` 导出管理页，对接 `/api/admin/exports*`
+
+说明：
+- 图谱页已接入轻量图模块，后端使用 SQLite + Python 图运行层。
+- 当前支持 `/graph/summary`、`/graph/overview`、`/graph/nodes`、`/graph/nodes/{id}`、`/graph/nodes/{id}/neighbors`、`/graph/subgraph/{id}`。
 
 新增的前端适配后端接口：
 - `POST /chat/messages`
@@ -205,6 +237,65 @@ curl -s -X POST http://127.0.0.1:${PORT:-8000}/chat/messages \
 - 当前返回 AtlasCore 占位答复
 - 该接口已经用于前端聊天页联调
 - 后续可在此处接入真实 Dify 聊天转发
+
+### 聊天反馈接口
+
+先调用聊天接口拿到 `message_id`，再提交反馈：
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/chat/messages/<message_id>/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "liked": true,
+    "rating": 5,
+    "comment": "回答有帮助",
+    "source": "frontend"
+  }'
+```
+
+说明：
+- 当前前端聊天页的点赞 / 点踩使用该接口
+- `rating`、`liked`、`comment` 都支持按需传递
+
+### 最小图数据构造
+
+当前图数据保存在 `GRAPH_INSTANCE_LOCAL_PATH` 指向的 SQLite 文件中，至少包含：
+- `graph_nodes`
+- `graph_edges`
+- `graph_sync_records`
+- `graph_versions`
+
+可以先启动服务，再通过测试脚本或 SQLite 工具向 `graph_nodes` / `graph_edges` 写入最小样例数据，然后调用：
+
+```bash
+curl -s http://127.0.0.1:${PORT:-8000}/graph/summary
+curl -s http://127.0.0.1:${PORT:-8000}/graph/overview?limit=100
+curl -s http://127.0.0.1:${PORT:-8000}/graph/nodes?limit=20
+curl -s http://127.0.0.1:${PORT:-8000}/graph/nodes/<node_id>
+curl -s http://127.0.0.1:${PORT:-8000}/graph/nodes/<node_id>/neighbors?limit=20
+curl -s http://127.0.0.1:${PORT:-8000}/graph/subgraph/<node_id>?depth=1&limit=50
+```
+
+### 图导出、导入与重载
+
+管理员登录后可调用：
+
+```bash
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/api/admin/graph/reload \
+  -H "Authorization: Bearer <admin_token>"
+
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/api/admin/graph/export \
+  -H "Authorization: Bearer <admin_token>"
+
+curl -s -X POST http://127.0.0.1:${PORT:-8000}/api/admin/graph/import \
+  -H "Authorization: Bearer <admin_token>" \
+  -F "file=@/absolute/path/to/graph_snapshot.db"
+```
+
+第一版暂不支持：
+- 复杂图算法
+- 多实例共享同一图 SQLite 写入
+- 自动文档解析入图
 
 ### 写入一条问答日志
 
@@ -307,6 +398,17 @@ curl -s http://127.0.0.1:${PORT:-8000}/api/admin/logs \
   -H "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
+### 查询正式日志详情接口
+
+```bash
+curl -s http://127.0.0.1:${PORT:-8000}/api/admin/logs/<record_id> \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
+```
+
+说明：
+- 前端管理员日志页右侧详情面板使用该接口
+- 返回单条问答日志及其最新反馈摘要
+
 ### 下载导出的 CSV
 
 ```bash
@@ -321,9 +423,12 @@ curl -OJ http://127.0.0.1:${PORT:-8000}/api/admin/exports/download/<filename> \
 3. 访问 `/admin/login`，使用 `admin` 与 `INITIAL_ADMIN_PASSWORD` 登录
 4. 在 `/chat` 验证聊天与反馈
 5. 在 `/graph` 验证图谱浏览与节点详情
-6. 在 `/admin/documents` 验证上传、删除与同步按钮
-7. 在 `/admin/logs` 验证日志筛选与详情
-8. 在 `/admin/exports` 验证导出与下载
+6. 调用 `POST /api/admin/graph/reload`
+7. 调用 `POST /api/admin/graph/export`
+8. 调用 `POST /api/admin/graph/import`
+9. 在 `/admin/documents` 验证上传、删除与同步按钮
+10. 在 `/admin/logs` 验证日志筛选与详情
+11. 在 `/admin/exports` 验证导出与下载
 
 ## 9. 部署说明
 
@@ -333,7 +438,7 @@ curl -OJ http://127.0.0.1:${PORT:-8000}/api/admin/exports/download/<filename> \
 
 这样可以保持架构边界清晰：
 - 前端只调用 AtlasCore
-- AtlasCore 内部负责 Dify 与后续 Neo4j 扩展
+- AtlasCore 内部负责 Dify 与后续可选图能力扩展
 - 不需要为了第一版引入复杂微前端或额外中间层
 
 ### 兼容的 debug 导出接口
@@ -384,6 +489,8 @@ docker run --rm -p 8000:8000 \
 - `app/models/`
 - `app/repositories/`
 - `app/services/`
+- `app/graph/`
+- `app/api/v1/admin_graph.py`
 - `app/api/v1/admin_exports.py`
 - `app/api/v1/root.py`
 - `app/api/v1/debug.py`
@@ -396,6 +503,10 @@ docker run --rm -p 8000:8000 \
 - `qa_logs`
 - `feedback_records`
 - `export_records`
+- `graph_nodes`
+- `graph_edges`
+- `graph_sync_records`
+- `graph_versions`
 
 ## 8. 为后续步骤预留的点
 
@@ -407,14 +518,15 @@ docker run --rm -p 8000:8000 \
 - 或从 `GET /api/admin/exports` 列表里读取 `download_url`
 - 启动期初始化逻辑已具备，可继续加更正式的 bootstrap/migration 流程
 
-### 第八步预留
-- `NEO4J_*` 配置仍保留
-- `/graph/*` 路由和 graph service 仍在
-- 当前只做接口占位，不做真实图库接入与同步链路
+### 第八步已完成
+- 轻量图底层为 SQLite + Python 图运行层
+- 支持图 SQLite 导入、导出和运行时重载
+- `NEO4J_*` 仅为后续可选方案预留
+- `/graph/*` 已可直接服务前端图谱页
 
 ### 仍未完成
 - 真实 Dify API 联调
-- 图谱真实同步状态管理
+- 多跳复杂图算法与跨实例共享图库
 - Key Vault / Managed Identity
 - 多实例共享存储与并发写控制
 

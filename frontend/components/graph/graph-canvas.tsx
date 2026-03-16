@@ -35,7 +35,7 @@ export function GraphCanvas({ nodes, edges, onNodeClick }: GraphCanvasProps) {
   );
 
   if (!nodes.length) {
-    return <EmptyState title="暂无图谱数据" description="当前没有可展示的节点。请检查 Neo4j 连接或等待数据同步。" className="h-full" />;
+    return <EmptyState title="暂无图谱数据" description="当前没有可展示的节点。请检查图 SQLite 数据是否已导入，或等待图运行层重载。" className="h-full" />;
   }
 
   return (

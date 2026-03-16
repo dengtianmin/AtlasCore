@@ -127,6 +127,7 @@ class Settings(BaseSettings):
         admin_payload = file_payload.get("admin", {})
         defaults_payload = file_payload.get("defaults", {})
         export_payload = file_payload.get("export", {})
+        graph_payload = file_payload.get("graph", {})
         integrations_payload = file_payload.get("integrations", {})
 
         normalized_payload = {
@@ -144,6 +145,13 @@ class Settings(BaseSettings):
             "FIXED_MAPPINGS": defaults_payload.get("mappings", {}),
             "RESERVED_INTEGRATIONS": integrations_payload,
             "GRAPH_ENABLED": defaults_payload.get("features", {}).get("enable_graph_api"),
+            "GRAPH_RELOAD_ON_START": defaults_payload.get("features", {}).get("graph_reload_on_start"),
+            "GRAPH_DEFAULT_LIMIT": graph_payload.get("default_limit"),
+            "GRAPH_MAX_NEIGHBORS": graph_payload.get("max_neighbors"),
+            "GRAPH_EXPORT_DIR": graph_payload.get("export_dir"),
+            "GRAPH_IMPORT_DIR": graph_payload.get("import_dir"),
+            "GRAPH_SNAPSHOT_PATH": graph_payload.get("snapshot_path"),
+            "GRAPH_INSTANCE_LOCAL_PATH": graph_payload.get("instance_local_path"),
         }
         normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
         return _deep_merge(normalized_payload, values)

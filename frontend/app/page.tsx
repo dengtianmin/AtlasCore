@@ -88,7 +88,7 @@ export default function HomePage() {
                   <CardTitle>系统说明</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm leading-7 text-muted-foreground">
-                  <p>前端不直接连接 Dify 或 Neo4j。所有请求统一通过 AtlasCore API，由后端负责认证、文档管理、图谱查询、日志和导出。</p>
+                  <p>前端不直接连接 Dify 或外部图库。所有请求统一通过 AtlasCore API，由后端负责认证、文档管理、图谱查询、日志和导出。</p>
                   <p>当前版本优先桌面端体验，采用简约、学术、扁平化视觉系统，适合继续迭代为正式知识平台界面。</p>
                   <div className="flex flex-wrap gap-2">
                     <Link

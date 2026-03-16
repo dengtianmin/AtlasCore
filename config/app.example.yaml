@@ -20,6 +20,7 @@ defaults:
     enable_debug_endpoints: true
     enable_csv_export: true
     enable_root_debug_page: true
+    graph_reload_on_start: true
   mappings:
     document_source_labels:
       upload: Uploaded file
@@ -31,6 +32,14 @@ export:
       delimiter: ","
       include_header: true
       filename_prefix: qa_logs
+
+graph:
+  default_limit: 100
+  max_neighbors: 200
+  export_dir: ./data/graph_exports
+  import_dir: ./data/graph_imports
+  instance_local_path: ./data/atlascore_graph.db
+  snapshot_path: ./data/atlascore_graph.db
 
 integrations:
   neo4j:

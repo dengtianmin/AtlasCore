@@ -121,10 +121,15 @@ def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):
                 "    admin_dashboard_size: 20",
                 "  features:",
                 "    enable_debug_endpoints: true",
+                "    graph_reload_on_start: false",
                 "export:",
                 "  rules:",
                 "    qa_logs:",
                 '      delimiter: ";"',
+                "graph:",
+                "  default_limit: 120",
+                "  max_neighbors: 240",
+                "  export_dir: ./yaml-graph-exports",
                 "integrations:",
                 "  neo4j:",
                 "    enabled: false",
@@ -140,7 +145,11 @@ def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):
     assert settings.PORT == 8010
     assert settings.INITIAL_ADMIN_USERNAME == "atlas-admin"
     assert settings.PAGE_DEFAULTS == {"admin_dashboard_size": 20}
-    assert settings.FEATURE_FLAGS == {"enable_debug_endpoints": True}
+    assert settings.FEATURE_FLAGS == {"enable_debug_endpoints": True, "graph_reload_on_start": False}
+    assert settings.GRAPH_RELOAD_ON_START is False
+    assert settings.GRAPH_DEFAULT_LIMIT == 120
+    assert settings.GRAPH_MAX_NEIGHBORS == 240
+    assert settings.GRAPH_EXPORT_DIR == "./yaml-graph-exports"
     assert settings.EXPORT_RULES == {"qa_logs": {"delimiter": ";"}}
     assert settings.RESERVED_INTEGRATIONS == {"neo4j": {"enabled": False}}
 
