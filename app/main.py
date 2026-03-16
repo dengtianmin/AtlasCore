@@ -5,6 +5,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.lifespan import lifespan
+from app.core.logging import setup_logging
 
 LOCAL_FRONTEND_ORIGINS = [
     "http://127.0.0.1:3000",
@@ -13,6 +14,7 @@ LOCAL_FRONTEND_ORIGINS = [
 
 
 def create_app() -> FastAPI:
+    setup_logging()
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
