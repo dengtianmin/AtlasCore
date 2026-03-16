@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,22 +12,28 @@ class DocumentRepository:
         self,
         db: Session,
         *,
-        title: str,
+        filename: str,
         source_type: str,
-        source_uri: str | None,
         status: str,
+        uploaded_at: datetime,
+        synced_to_dify: bool = False,
+        synced_to_graph: bool = False,
+        note: str | None = None,
+        source_uri: str | None = None,
         created_by: UUID | None,
-        file_name: str | None,
         content_type: str | None,
         file_size: int | None,
     ) -> Document:
         doc = Document(
-            title=title,
+            filename=filename,
             source_type=source_type,
-            source_uri=source_uri,
             status=status,
+            uploaded_at=uploaded_at,
+            synced_to_dify=synced_to_dify,
+            synced_to_graph=synced_to_graph,
+            note=note,
+            source_uri=source_uri,
             created_by=created_by,
-            file_name=file_name,
             content_type=content_type,
             file_size=file_size,
         )
@@ -50,6 +57,24 @@ class DocumentRepository:
 
     def update_status(self, db: Session, *, doc: Document, status: str) -> Document:
         doc.status = status
+        db.add(doc)
+        db.flush()
+        db.refresh(doc)
+        return doc
+
+    def mark_synced(
+        self,
+        db: Session,
+        *,
+        doc: Document,
+        target_system: str,
+        status: str,
+    ) -> Document:
+        doc.status = status
+        if target_system == "dify":
+            doc.synced_to_dify = True
+        if target_system == "graph":
+            doc.synced_to_graph = True
         db.add(doc)
         db.flush()
         db.refresh(doc)

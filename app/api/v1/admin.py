@@ -86,7 +86,7 @@ def get_document_status(
     db = _db_dependency()
     try:
         payload = service.get_document(db, doc_id=document_id)
-        return DocumentStatusResponse(id=payload["id"], status=payload["status"], updated_at=payload["updated_at"])
+        return DocumentStatusResponse(id=payload["id"], status=payload["status"], uploaded_at=payload["uploaded_at"])
     finally:
         db.close()
 

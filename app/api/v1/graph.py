@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.auth.dependencies import require_roles
 from app.auth.principal import Principal
-from app.auth.rbac import ROLE_ADMIN, ROLE_USER
+from app.auth.rbac import ROLE_ADMIN
 from app.schemas.graph import (
     GraphOverviewResponse,
     NodeDetailsResponse,
@@ -19,7 +19,7 @@ service = GraphService()
 
 @router.get("/overview", response_model=GraphOverviewResponse)
 def graph_overview(
-    _: Annotated[Principal, Depends(require_roles(ROLE_USER, ROLE_ADMIN))],
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
     limit: int = Query(default=100, ge=1, le=500),
 ) -> GraphOverviewResponse:
     return GraphOverviewResponse(**service.get_overview(limit=limit))
@@ -28,7 +28,7 @@ def graph_overview(
 @router.get("/nodes/{node_id}", response_model=NodeDetailsResponse)
 def node_details(
     node_id: str,
-    _: Annotated[Principal, Depends(require_roles(ROLE_USER, ROLE_ADMIN))],
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
 ) -> NodeDetailsResponse:
     return NodeDetailsResponse(**service.get_node_details(node_id=node_id))
 
@@ -36,7 +36,7 @@ def node_details(
 @router.get("/nodes/{node_id}/neighbors", response_model=NodeNeighborsResponse)
 def node_neighbors(
     node_id: str,
-    _: Annotated[Principal, Depends(require_roles(ROLE_USER, ROLE_ADMIN))],
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
     limit: int = Query(default=100, ge=1, le=500),
 ) -> NodeNeighborsResponse:
     return NodeNeighborsResponse(**service.get_neighbors(node_id=node_id, limit=limit))
@@ -45,7 +45,7 @@ def node_neighbors(
 @router.get("/nodes/{node_id}/hops", response_model=NodeHopsResponse)
 def node_hops(
     node_id: str,
-    _: Annotated[Principal, Depends(require_roles(ROLE_USER, ROLE_ADMIN))],
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
     depth: int = Query(default=1, ge=1, le=2),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> NodeHopsResponse:

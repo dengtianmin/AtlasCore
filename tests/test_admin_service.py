@@ -23,16 +23,17 @@ def _doc(status: str) -> SimpleNamespace:
     now = datetime.now(UTC)
     return SimpleNamespace(
         id=uuid4(),
-        title="doc.txt",
+        filename="doc.txt",
         status=status,
         source_type="upload",
+        uploaded_at=now,
+        synced_to_dify=False,
+        synced_to_graph=False,
+        note=None,
         source_uri="/tmp/doc.txt",
-        file_name="doc.txt",
         content_type="text/plain",
         file_size=3,
         created_by=uuid4(),
-        created_at=now,
-        updated_at=now,
     )
 
 
@@ -60,6 +61,7 @@ def test_upload_document_creates_metadata(monkeypatch):
     assert payload["status"] == DocumentStatus.UPLOADED.value
     assert captured["source_type"] == "upload"
     assert captured["created_by"] == admin_id
+    assert captured["filename"] == "doc.txt"
 
 
 def test_get_document_not_found():
@@ -101,18 +103,12 @@ def test_trigger_graph_sync_updates_status_and_creates_record(monkeypatch):
     monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
     monkeypatch.setattr(service.document_repo, "update_status", lambda *args, **kwargs: updated)
 
-    record_id = uuid4()
-    monkeypatch.setattr(
-        service.sync_repo,
-        "create",
-        lambda *args, **kwargs: SimpleNamespace(id=record_id),
-    )
+    monkeypatch.setattr(service.document_repo, "mark_synced", lambda *args, **kwargs: updated)
 
     payload = service.trigger_graph_sync(db, doc_id=doc.id)
 
     assert payload["target_system"] == "graph"
     assert payload["status"] == DocumentStatus.GRAPH_PENDING.value
-    assert payload["sync_record_id"] == record_id
     assert db.commits == 1
 
 
@@ -134,17 +130,11 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
         ),
     )
 
-    record_id = uuid4()
-    monkeypatch.setattr(
-        service.sync_repo,
-        "create",
-        lambda *args, **kwargs: SimpleNamespace(id=record_id),
-    )
+    monkeypatch.setattr(service.document_repo, "mark_synced", lambda *args, **kwargs: updated)
 
     payload = service.trigger_dify_index(db, doc_id=doc.id)
 
     assert payload["target_system"] == "dify"
     assert payload["status"] == DocumentStatus.INDEXED.value
-    assert payload["sync_record_id"] == record_id
     assert payload["message"] == "queued from test"
     assert db.commits == 1

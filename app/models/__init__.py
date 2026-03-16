@@ -1,7 +1,6 @@
+from app.models.admin_account import AdminAccount
 from app.models.document import Document
-from app.models.role import Role
-from app.models.sync_record import SyncRecord
-from app.models.user import User
-from app.models.user_role import UserRole
+from app.models.export_record import ExportRecord
+from app.models.qa_log import QuestionAnswerLog
 
-__all__ = ["User", "Role", "UserRole", "Document", "SyncRecord"]
+__all__ = ["AdminAccount", "Document", "QuestionAnswerLog", "ExportRecord"]

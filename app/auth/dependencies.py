@@ -9,7 +9,7 @@ from app.auth.identity import LocalJwtIdentityProvider, TokenIdentityProvider
 from app.auth.jwt_handler import TokenDecodeError
 from app.auth.principal import Principal
 from app.db.session import get_db_session
-from app.repositories.user_repo import UserRepository
+from app.repositories.admin_account_repo import AdminAccountRepository
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
@@ -45,7 +45,7 @@ def get_current_principal(
 
     return Principal(
         user_id=str(payload["sub"]),
-        email=str(payload.get("email", "")),
+        username=str(payload.get("username", "")),
         roles=[str(role) for role in roles],
     )
 
@@ -65,14 +65,14 @@ def get_current_active_principal(
     # Minimal check against local user table. Safe to keep optional and swappable.
     db = _get_db_or_503()
     try:
-        user_repo = UserRepository()
-        user = user_repo.get_by_id(db, UUID(principal.user_id))
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        if not user.is_active:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
-        principal.roles = user_repo.list_role_names(db, user.id)
-        principal.email = user.email
+        admin_repo = AdminAccountRepository()
+        admin = admin_repo.get_by_id(db, UUID(principal.user_id))
+        if admin is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin not found")
+        if not admin.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin is inactive")
+        principal.roles = ["admin"]
+        principal.username = admin.username
         return principal
     finally:
         db.close()

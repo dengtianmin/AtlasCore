@@ -21,11 +21,11 @@ def _resolve_jwt_secret() -> str:
     raise TokenDecodeError("JWT secret is not configured")
 
 
-def create_access_token(*, subject: str, email: str, roles: list[str], expires_minutes: int = DEFAULT_EXPIRES_MINUTES) -> tuple[str, int]:
+def create_access_token(*, subject: str, username: str, roles: list[str], expires_minutes: int = DEFAULT_EXPIRES_MINUTES) -> tuple[str, int]:
     expire_at = datetime.now(UTC) + timedelta(minutes=expires_minutes)
     payload: dict[str, Any] = {
         "sub": subject,
-        "email": email,
+        "username": username,
         "roles": roles,
         "exp": expire_at,
         "iat": datetime.now(UTC),
