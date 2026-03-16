@@ -95,6 +95,8 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("GRAPH_EXPORT_DIR", "/tmp/graph_exports")
     monkeypatch.setenv("GRAPH_IMPORT_DIR", "/tmp/graph_imports")
     monkeypatch.setenv("GRAPH_INSTANCE_LOCAL_PATH", "/tmp/graph_instance.db")
+    monkeypatch.setenv("GRAPH_INSTANCE_ID", "instance-a")
+    monkeypatch.setenv("GRAPH_DB_VERSION", "20260317")
     monkeypatch.setenv("KEY_VAULT_ENABLED", "true")
     monkeypatch.setenv("KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
     monkeypatch.setenv("KEY_VAULT_USE_MANAGED_IDENTITY", "true")
@@ -129,6 +131,8 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.GRAPH_EXPORT_DIR == "/tmp/graph_exports"
     assert settings.GRAPH_IMPORT_DIR == "/tmp/graph_imports"
     assert str(settings.graph_instance_path) == "/tmp/graph_instance.db"
+    assert settings.GRAPH_INSTANCE_ID == "instance-a"
+    assert settings.GRAPH_DB_VERSION == "20260317"
     assert settings.KEY_VAULT_ENABLED is True
     assert settings.KEY_VAULT_URL == "https://atlascore-kv.vault.azure.net"
     assert settings.KEY_VAULT_USE_MANAGED_IDENTITY is True
@@ -218,6 +222,41 @@ def test_settings_reads_json_config_file_and_env_overrides(monkeypatch, tmp_path
     assert settings.PORT == 8012
     assert settings.INITIAL_ADMIN_USERNAME == "json-admin"
     assert settings.FEATURE_FLAGS == {"enable_csv_export": True}
+
+
+def test_settings_accepts_dify_api_base_alias(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("DIFY_API_BASE", "https://dify-alias.example.com")
+    monkeypatch.setenv("DIFY_API_KEY", "alias-key")
+
+    settings = Settings()
+
+    assert settings.DIFY_BASE_URL == "https://dify-alias.example.com"
+    assert settings.is_dify_configured() is True
+
+
+def test_runtime_directories_are_created(monkeypatch, tmp_path):
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("JWT_SECRET", "unit-test-secret")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "StrongPass123!")
+    monkeypatch.setenv("APP_CONFIG_PATH", "")
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "db" / "atlascore.db"))
+    monkeypatch.setenv("CSV_EXPORT_DIR", str(tmp_path / "exports"))
+    monkeypatch.setenv("DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("GRAPH_EXPORT_DIR", str(tmp_path / "graph_exports"))
+    monkeypatch.setenv("GRAPH_IMPORT_DIR", str(tmp_path / "graph_imports"))
+    monkeypatch.setenv("GRAPH_INSTANCE_LOCAL_PATH", str(tmp_path / "graph" / "graph.db"))
+
+    settings = Settings()
+    summary = settings.runtime_config_summary()
+
+    assert summary["paths"]["sqlite_path"]["parent_exists"] is True
+    assert summary["paths"]["csv_export_dir"]["exists"] is True
+    assert summary["paths"]["graph_export_dir"]["exists"] is True
+    assert summary["paths"]["graph_import_dir"]["exists"] is True
+    assert summary["paths"]["graph_instance_local_path"]["parent_exists"] is True
+    assert summary["dify_configured"] is False
+    assert summary["admin_auth_configured"] is False
 
 
 def test_production_requires_jwt_secret(monkeypatch):

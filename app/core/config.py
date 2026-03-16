@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.secrets import ResolvedSecret, SecretResolutionError, SecretResolver
@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     GRAPH_IMPORT_DIR: str = "./data/graph_imports"
     GRAPH_SNAPSHOT_PATH: str | None = None
     GRAPH_INSTANCE_LOCAL_PATH: str | None = None
+    GRAPH_INSTANCE_ID: str = "local"
+    GRAPH_DB_VERSION: str | None = None
     KEY_VAULT_ENABLED: bool = False
     KEY_VAULT_URL: str | None = None
     AZURE_KEY_VAULT_URL: str | None = None
@@ -78,7 +80,10 @@ class Settings(BaseSettings):
     NEO4J_DATABASE: str = "neo4j"
     NEO4J_USERNAME: str | None = None
     NEO4J_PASSWORD: str | None = None
-    DIFY_BASE_URL: str | None = None
+    DIFY_BASE_URL: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DIFY_BASE_URL", "DIFY_API_BASE"),
+    )
     DIFY_API_KEY: str | None = None
     DIFY_API_KEY_SECRET_NAME: str | None = None
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
@@ -129,6 +134,18 @@ class Settings(BaseSettings):
     @property
     def graph_sqlite_url(self) -> str:
         return f"sqlite:///{self.graph_instance_path}"
+
+    @property
+    def runtime_paths(self) -> dict[str, Path]:
+        return {
+            "sqlite_path": Path(self.SQLITE_PATH).expanduser(),
+            "csv_export_dir": Path(self.CSV_EXPORT_DIR).expanduser(),
+            "document_storage_dir": Path(self.DOCUMENT_LOCAL_STORAGE_DIR).expanduser(),
+            "graph_export_dir": Path(self.GRAPH_EXPORT_DIR).expanduser(),
+            "graph_import_dir": Path(self.GRAPH_IMPORT_DIR).expanduser(),
+            "graph_snapshot_path": self.graph_snapshot_path,
+            "graph_instance_local_path": self.graph_instance_path,
+        }
 
     def _secret_resolver(self) -> SecretResolver:
         return SecretResolver(self)
@@ -207,6 +224,125 @@ class Settings(BaseSettings):
             summary[label] = {"configured": resolved.is_configured, "source": resolved.source}
         return summary
 
+    def is_dify_configured(self) -> bool:
+        try:
+            return bool(self.DIFY_BASE_URL and self.resolved_dify_api_key)
+        except SecretResolutionError:
+            return False
+
+    def is_admin_auth_configured(self) -> bool:
+        jwt_configured = bool(self.resolved_jwt_secret)
+        admin_seed_configured = bool(self.INITIAL_ADMIN_USERNAME and self.resolved_initial_admin_password)
+        admin_hash_configured = bool(self.resolved_admin_password_hash)
+        admin_secret_configured = bool(self.resolved_admin_auth_secret)
+        return jwt_configured and (admin_seed_configured or admin_hash_configured or admin_secret_configured)
+
+    def ensure_runtime_directories(self) -> dict[str, dict[str, Any]]:
+        results: dict[str, dict[str, Any]] = {}
+        results["sqlite_path"] = self._inspect_path(
+            self.runtime_paths["sqlite_path"],
+            path_kind="file",
+            create_parent=True,
+            check_read=False,
+            check_write=True,
+        )
+        results["csv_export_dir"] = self._inspect_path(
+            self.runtime_paths["csv_export_dir"],
+            path_kind="dir",
+            create_parent=True,
+            check_read=True,
+            check_write=True,
+        )
+        results["document_storage_dir"] = self._inspect_path(
+            self.runtime_paths["document_storage_dir"],
+            path_kind="dir",
+            create_parent=True,
+            check_read=True,
+            check_write=True,
+        )
+        results["graph_export_dir"] = self._inspect_path(
+            self.runtime_paths["graph_export_dir"],
+            path_kind="dir",
+            create_parent=True,
+            check_read=True,
+            check_write=True,
+        )
+        results["graph_import_dir"] = self._inspect_path(
+            self.runtime_paths["graph_import_dir"],
+            path_kind="dir",
+            create_parent=True,
+            check_read=True,
+            check_write=True,
+        )
+        results["graph_instance_local_path"] = self._inspect_path(
+            self.runtime_paths["graph_instance_local_path"],
+            path_kind="file",
+            create_parent=True,
+            check_read=False,
+            check_write=True,
+        )
+        results["graph_snapshot_path"] = self._inspect_path(
+            self.runtime_paths["graph_snapshot_path"],
+            path_kind="file",
+            create_parent=True,
+            check_read=False,
+            check_write=True,
+        )
+        return results
+
+    def runtime_config_summary(self) -> dict[str, Any]:
+        path_summary = self.ensure_runtime_directories()
+        return {
+            "app_env": self.APP_ENV,
+            "app_name": self.APP_NAME,
+            "app_version": self.APP_VERSION,
+            "port": self.PORT,
+            "log_level": self.LOG_LEVEL,
+            "app_config_path_configured": bool(self.APP_CONFIG_PATH),
+            "graph_enabled": self.GRAPH_ENABLED,
+            "graph_instance_id": self.GRAPH_INSTANCE_ID,
+            "graph_db_version": self.GRAPH_DB_VERSION,
+            "dify_configured": self.is_dify_configured(),
+            "admin_auth_configured": self.is_admin_auth_configured(),
+            "paths": path_summary,
+            "secrets": self.secret_status_summary(),
+        }
+
+    @staticmethod
+    def _is_writable(path: Path, *, path_kind: Literal["dir", "file"]) -> bool:
+        target = path if path_kind == "dir" else path.parent
+        return os.access(target, os.W_OK)
+
+    @staticmethod
+    def _is_readable(path: Path, *, path_kind: Literal["dir", "file"]) -> bool:
+        target = path if path_kind == "dir" else path.parent
+        return os.access(target, os.R_OK)
+
+    def _inspect_path(
+        self,
+        path: Path,
+        *,
+        path_kind: Literal["dir", "file"],
+        create_parent: bool,
+        check_read: bool,
+        check_write: bool,
+    ) -> dict[str, Any]:
+        resolved = path.expanduser()
+        parent = resolved if path_kind == "dir" else resolved.parent
+        if create_parent:
+            parent.mkdir(parents=True, exist_ok=True)
+        exists = resolved.exists()
+        if path_kind == "dir" and not exists:
+            resolved.mkdir(parents=True, exist_ok=True)
+            exists = True
+        return {
+            "path": str(resolved),
+            "exists": exists,
+            "parent_exists": parent.exists(),
+            "readable": self._is_readable(resolved, path_kind=path_kind) if check_read else None,
+            "writable": self._is_writable(resolved, path_kind=path_kind) if check_write else None,
+        }
+
     @model_validator(mode="before")
     @classmethod
     def apply_config_file(cls, data: Any) -> Any:
@@ -243,6 +379,9 @@ class Settings(BaseSettings):
             "GRAPH_IMPORT_DIR": graph_payload.get("import_dir"),
             "GRAPH_SNAPSHOT_PATH": graph_payload.get("snapshot_path"),
             "GRAPH_INSTANCE_LOCAL_PATH": graph_payload.get("instance_local_path"),
+            "GRAPH_INSTANCE_ID": graph_payload.get("instance_id"),
+            "GRAPH_DB_VERSION": graph_payload.get("db_version"),
+            "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
         }
         normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
         return _deep_merge(normalized_payload, values)
@@ -278,6 +417,8 @@ class Settings(BaseSettings):
         dify_values = [self.DIFY_BASE_URL, dify_api_key]
         if any(dify_values) and not all(dify_values):
             raise ValueError("DIFY_BASE_URL and DIFY_API_KEY must be provided together")
+
+        self.ensure_runtime_directories()
 
         return self
 
