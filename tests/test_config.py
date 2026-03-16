@@ -13,6 +13,14 @@ def test_settings_defaults(monkeypatch):
     monkeypatch.delenv("APP_CONFIG_PATH", raising=False)
     monkeypatch.delenv("SQLITE_PATH", raising=False)
     monkeypatch.delenv("CSV_EXPORT_DIR", raising=False)
+    monkeypatch.delenv("GRAPH_ENABLED", raising=False)
+    monkeypatch.delenv("GRAPH_DEFAULT_LIMIT", raising=False)
+    monkeypatch.delenv("GRAPH_MAX_NEIGHBORS", raising=False)
+    monkeypatch.delenv("GRAPH_RELOAD_ON_START", raising=False)
+    monkeypatch.delenv("GRAPH_EXPORT_DIR", raising=False)
+    monkeypatch.delenv("GRAPH_IMPORT_DIR", raising=False)
+    monkeypatch.delenv("GRAPH_SNAPSHOT_PATH", raising=False)
+    monkeypatch.delenv("GRAPH_INSTANCE_LOCAL_PATH", raising=False)
     monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("INITIAL_ADMIN_PASSWORD", raising=False)
     monkeypatch.delenv("NEO4J_URI", raising=False)
@@ -32,6 +40,13 @@ def test_settings_defaults(monkeypatch):
     assert settings.APP_CONFIG_PATH is None
     assert settings.SQLITE_PATH == "./data/atlascore.db"
     assert settings.CSV_EXPORT_DIR == "./data/exports"
+    assert settings.GRAPH_ENABLED is True
+    assert settings.GRAPH_DEFAULT_LIMIT == 100
+    assert settings.GRAPH_MAX_NEIGHBORS == 200
+    assert settings.GRAPH_RELOAD_ON_START is True
+    assert settings.GRAPH_EXPORT_DIR == "./data/graph_exports"
+    assert settings.GRAPH_IMPORT_DIR == "./data/graph_imports"
+    assert settings.graph_instance_path.name == "atlascore_graph.db"
     assert settings.JWT_SECRET is None
     assert settings.INITIAL_ADMIN_PASSWORD is None
     assert settings.NEO4J_URI is None
@@ -52,6 +67,13 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     monkeypatch.setenv("SQLITE_PATH", "/tmp/atlascore.db")
     monkeypatch.setenv("CSV_EXPORT_DIR", "/tmp/exports")
+    monkeypatch.setenv("GRAPH_ENABLED", "false")
+    monkeypatch.setenv("GRAPH_DEFAULT_LIMIT", "80")
+    monkeypatch.setenv("GRAPH_MAX_NEIGHBORS", "160")
+    monkeypatch.setenv("GRAPH_RELOAD_ON_START", "false")
+    monkeypatch.setenv("GRAPH_EXPORT_DIR", "/tmp/graph_exports")
+    monkeypatch.setenv("GRAPH_IMPORT_DIR", "/tmp/graph_imports")
+    monkeypatch.setenv("GRAPH_INSTANCE_LOCAL_PATH", "/tmp/graph_instance.db")
     monkeypatch.setenv("JWT_SECRET", "local-secret")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "admin-secret")
     monkeypatch.setenv("NEO4J_URI", "neo4j+s://demo.databases.neo4j.io")
@@ -68,6 +90,13 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.LOG_LEVEL == "WARNING"
     assert settings.SQLITE_PATH == "/tmp/atlascore.db"
     assert settings.CSV_EXPORT_DIR == "/tmp/exports"
+    assert settings.GRAPH_ENABLED is False
+    assert settings.GRAPH_DEFAULT_LIMIT == 80
+    assert settings.GRAPH_MAX_NEIGHBORS == 160
+    assert settings.GRAPH_RELOAD_ON_START is False
+    assert settings.GRAPH_EXPORT_DIR == "/tmp/graph_exports"
+    assert settings.GRAPH_IMPORT_DIR == "/tmp/graph_imports"
+    assert str(settings.graph_instance_path) == "/tmp/graph_instance.db"
     assert settings.JWT_SECRET == "local-secret"
     assert settings.INITIAL_ADMIN_PASSWORD == "admin-secret"
     assert settings.NEO4J_URI == "neo4j+s://demo.databases.neo4j.io"

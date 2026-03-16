@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     APP_CONFIG_PATH: str | None = None
     SQLITE_PATH: str = "./data/atlascore.db"
     CSV_EXPORT_DIR: str = "./data/exports"
+    GRAPH_ENABLED: bool = True
+    GRAPH_DEFAULT_LIMIT: int = Field(default=100, ge=1, le=1000)
+    GRAPH_MAX_NEIGHBORS: int = Field(default=200, ge=1, le=5000)
+    GRAPH_RELOAD_ON_START: bool = True
+    GRAPH_EXPORT_DIR: str = "./data/graph_exports"
+    GRAPH_IMPORT_DIR: str = "./data/graph_imports"
+    GRAPH_SNAPSHOT_PATH: str | None = None
+    GRAPH_INSTANCE_LOCAL_PATH: str | None = None
 
     JWT_SECRET: str | None = None
     INITIAL_ADMIN_PASSWORD: str | None = None
@@ -90,6 +98,24 @@ class Settings(BaseSettings):
         sqlite_path = Path(self.SQLITE_PATH).expanduser()
         return f"sqlite:///{sqlite_path}"
 
+    @property
+    def graph_instance_path(self) -> Path:
+        if self.GRAPH_INSTANCE_LOCAL_PATH:
+            return Path(self.GRAPH_INSTANCE_LOCAL_PATH).expanduser()
+
+        base_path = Path(self.SQLITE_PATH).expanduser()
+        return base_path.with_name("atlascore_graph.db")
+
+    @property
+    def graph_snapshot_path(self) -> Path:
+        if self.GRAPH_SNAPSHOT_PATH:
+            return Path(self.GRAPH_SNAPSHOT_PATH).expanduser()
+        return self.graph_instance_path
+
+    @property
+    def graph_sqlite_url(self) -> str:
+        return f"sqlite:///{self.graph_instance_path}"
+
     @model_validator(mode="before")
     @classmethod
     def apply_config_file(cls, data: Any) -> Any:
@@ -117,6 +143,7 @@ class Settings(BaseSettings):
             "EXPORT_RULES": export_payload.get("rules", {}),
             "FIXED_MAPPINGS": defaults_payload.get("mappings", {}),
             "RESERVED_INTEGRATIONS": integrations_payload,
+            "GRAPH_ENABLED": defaults_payload.get("features", {}).get("enable_graph_api"),
         }
         normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
         return _deep_merge(normalized_payload, values)
