@@ -17,6 +17,22 @@ class GraphService:
         except GraphUnavailableError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
+    def reload_graph(self) -> dict:
+        try:
+            return self.runtime.reload_graph()
+        except GraphUnavailableError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    def get_admin_status(self) -> dict:
+        summary = self.runtime.get_graph_summary()
+        return {
+            **summary,
+            "enabled": settings.GRAPH_ENABLED,
+            "import_dir": settings.GRAPH_IMPORT_DIR,
+            "export_dir": settings.GRAPH_EXPORT_DIR,
+            "instance_local_path": str(settings.graph_instance_path),
+        }
+
     def list_nodes(
         self,
         *,

@@ -58,3 +58,25 @@ class ExportListResponse(BaseModel):
 
 class ExportTriggerResponse(ExportRecordResponse):
     success: bool
+
+
+class GraphAdminStatusResponse(BaseModel):
+    enabled: bool
+    loaded: bool
+    node_count: int
+    edge_count: int
+    current_version: str | None
+    sqlite_path: str
+    last_loaded_at: datetime | None
+    import_dir: str
+    export_dir: str
+    instance_local_path: str
+
+
+class GraphReloadResponse(BaseModel):
+    loaded: bool
+    node_count: int
+    edge_count: int
+    current_version: str | None
+    sqlite_path: str
+    last_loaded_at: datetime | None

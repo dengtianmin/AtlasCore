@@ -19,6 +19,7 @@ class GraphState:
     graph: nx.MultiDiGraph
     loaded_at: datetime
     current_version: str | None
+    sqlite_path: str
 
 
 class GraphRuntime:
@@ -32,7 +33,7 @@ class GraphRuntime:
             raise GraphUnavailableError("Graph module is disabled")
 
         with self._lock:
-            if self._state is not None and not force:
+            if self._state is not None and self._state.sqlite_path == str(settings.graph_instance_path) and not force:
                 return self.get_graph_summary()
 
             bundle = self.loader.load()
@@ -40,6 +41,7 @@ class GraphRuntime:
                 graph=self._build_graph(bundle),
                 loaded_at=datetime.now(UTC),
                 current_version=bundle.current_version,
+                sqlite_path=str(settings.graph_instance_path),
             )
             return self.get_graph_summary()
 
@@ -52,6 +54,10 @@ class GraphRuntime:
         if self._state is None:
             raise GraphUnavailableError("Graph state is unavailable")
         return self._state
+
+    def reset(self) -> None:
+        with self._lock:
+            self._state = None
 
     def get_graph_summary(self) -> dict:
         state = self._state

@@ -16,9 +16,12 @@ def test_anonymous_routes_have_no_auth_dependencies():
     dependencies = _route_dependencies_by_path()
 
     assert dependencies["/users/ping"] == []
+    assert dependencies["/graph/summary"] == []
     assert dependencies["/graph/overview"] == []
+    assert dependencies["/graph/nodes"] == []
     assert dependencies["/graph/nodes/{node_id}"] == []
     assert dependencies["/graph/nodes/{node_id}/neighbors"] == []
+    assert dependencies["/graph/subgraph/{node_id}"] == []
     assert dependencies["/graph/nodes/{node_id}/hops"] == []
 
 
@@ -26,6 +29,8 @@ def test_admin_routes_still_require_auth_dependencies():
     dependencies = _route_dependencies_by_path()
 
     assert len(dependencies["/admin/ping"]) == 1
+    assert len(dependencies["/api/admin/graph/status"]) == 1
+    assert len(dependencies["/api/admin/graph/reload"]) == 1
     assert len(dependencies["/api/admin/exports/qa-logs"]) == 1
     assert len(dependencies["/api/admin/exports"]) == 1
     assert len(dependencies["/api/admin/exports/download/{filename}"]) == 1
