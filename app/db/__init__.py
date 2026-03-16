@@ -1,1 +1,1 @@
-"""Database package (placeholder for PostgreSQL and Neo4j)."""
+"""Database package for SQLite-first runtime storage and integration adapters."""
