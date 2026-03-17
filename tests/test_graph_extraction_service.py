@@ -270,7 +270,12 @@ def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
             captured["json"] = json
             return FakeResponse()
 
-    monkeypatch.setattr("app.services.graph_extraction_service.httpx.AsyncClient", lambda timeout: FakeClient())
+    def fake_async_client(*, timeout, trust_env):
+        captured["timeout"] = timeout
+        captured["trust_env"] = trust_env
+        return FakeClient()
+
+    monkeypatch.setattr("app.services.graph_extraction_service.httpx.AsyncClient", fake_async_client)
 
     model_setting = type(
         "ModelSetting",
@@ -300,6 +305,7 @@ def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
 
     assert content == "{\"nodes\": [], \"edges\": []}"
     assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    assert captured["trust_env"] is False
     assert captured["json"]["model"] == "GLM-5"
     assert captured["json"]["thinking"] == {"type": "disabled"}
 

@@ -547,7 +547,7 @@ class GraphExtractionService:
         }
         if not resolved_model_setting.thinking_enabled:
             payload["thinking"] = {"type": "disabled"}
-        async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS, trust_env=False) as client:
             response = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
