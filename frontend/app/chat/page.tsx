@@ -11,15 +11,68 @@ import { FeedbackActions } from "@/components/chat/feedback-actions";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatMessageList, type ChatTimelineMessage } from "@/components/chat/chat-message-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { sendChatMessage, submitChatFeedback } from "@/lib/api/chat";
+import { streamChatMessage, submitChatFeedback, type ChatStreamEndPayload } from "@/lib/api/chat";
 
 export default function ChatPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatTimelineMessage[]>([]);
   const [lastAssistantMessageId, setLastAssistantMessageId] = useState<string | null>(null);
 
-  const chatMutation = useMutation({
-    mutationFn: (question: string) => sendChatMessage({ question, session_id: sessionId }),
+  const chatMutation = useMutation<ChatStreamEndPayload, Error, string, { assistantMessageId: string }>({
+    mutationFn: async (question: string) => {
+      let finalResponse: ChatStreamEndPayload | null = null;
+
+      await streamChatMessage(
+        { question, session_id: sessionId },
+        {
+          onEvent: (event) => {
+            if (event.event === "start") {
+              setSessionId(event.data.session_id);
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id.startsWith("pending-")
+                    ? {
+                        ...message,
+                        source: "dify",
+                        providerMessageId: event.data.provider_message_id ?? null,
+                        workflowRunId: event.data.workflow_run_id ?? null
+                      }
+                    : message
+                )
+              );
+              return;
+            }
+
+            if (event.event === "delta") {
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id.startsWith("pending-")
+                    ? {
+                        ...message,
+                        content: `${message.content}${event.data.text}`,
+                        source: "dify",
+                        status: "streaming"
+                      }
+                    : message
+                )
+              );
+              return;
+            }
+
+            if (event.event === "end") {
+              finalResponse = event.data;
+              setSessionId(event.data.session_id);
+            }
+          }
+        }
+      );
+
+      if (!finalResponse) {
+        throw new Error("流式响应未返回结束事件");
+      }
+
+      return finalResponse;
+    },
     onMutate: (question) => {
       const createdAt = new Date().toISOString();
       const userMessageId = `user-${crypto.randomUUID()}`;
@@ -31,7 +84,7 @@ export default function ChatPage() {
         {
           id: assistantMessageId,
           role: "assistant",
-          content: "AtlasCore 正在通过后端调用 Dify，请稍候...",
+          content: "",
           createdAt,
           source: "atlascore",
           status: "processing"
@@ -43,19 +96,21 @@ export default function ChatPage() {
     onSuccess: (response, _question, context) => {
       setSessionId(response.session_id);
       setLastAssistantMessageId(response.message_id);
-      setMessages((current) => [
-        ...current.filter((message) => message.id !== context?.assistantMessageId),
-        {
-          id: response.message_id,
-          role: "assistant",
-          content: response.answer,
-          createdAt: response.created_at,
-          source: response.source,
-          status: response.status,
-          providerMessageId: response.provider_message_id,
-          workflowRunId: response.workflow_run_id
-        }
-      ]);
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === context?.assistantMessageId
+            ? {
+                ...message,
+                id: response.message_id,
+                createdAt: response.created_at,
+                source: "dify",
+                status: response.status,
+                providerMessageId: response.provider_message_id ?? null,
+                workflowRunId: response.workflow_run_id ?? null
+              }
+            : message
+        )
+      );
     },
     onError: (error, _question, context) => {
       setLastAssistantMessageId(null);
@@ -64,7 +119,7 @@ export default function ChatPage() {
           message.id === context?.assistantMessageId
             ? {
                 ...message,
-                content: `请求失败：${(error as Error).message}`,
+                content: message.content ? `${message.content}\n\n请求失败：${(error as Error).message}` : `请求失败：${(error as Error).message}`,
                 status: "failed",
                 source: "atlascore"
               }

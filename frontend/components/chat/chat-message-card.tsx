@@ -39,7 +39,7 @@ export function ChatMessageCard({
         ) : null}
         {role === "assistant" ? (
           <div className="prose-atlascore">
-            <ReactMarkdown>{content}</ReactMarkdown>
+            {content ? <ReactMarkdown>{content}</ReactMarkdown> : <p className="text-sm text-muted-foreground">正在生成回答...</p>}
           </div>
         ) : (
           <p className="text-sm leading-7">{content}</p>
