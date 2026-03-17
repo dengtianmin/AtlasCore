@@ -49,6 +49,14 @@ class GraphRepository:
     def get_node(self, db: Session, *, node_id: str) -> GraphNode | None:
         return db.get(GraphNode, node_id)
 
+    def list_node_sources(self, db: Session, *, node_id: str) -> list[GraphNodeSource]:
+        stmt = (
+            select(GraphNodeSource)
+            .where(GraphNodeSource.node_id == node_id)
+            .order_by(GraphNodeSource.document_id.asc(), GraphNodeSource.id.asc())
+        )
+        return list(db.execute(stmt).scalars().all())
+
     def get_current_version(self, db: Session) -> GraphVersion | None:
         stmt = select(GraphVersion).where(GraphVersion.is_current.is_(True)).order_by(GraphVersion.imported_at.desc())
         return db.execute(stmt).scalar_one_or_none()

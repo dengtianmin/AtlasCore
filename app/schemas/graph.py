@@ -48,9 +48,24 @@ class GraphNodeListResponse(BaseModel):
     offset: int
 
 
+class GraphSourceDocument(BaseModel):
+    document_id: str | None = None
+    title: str
+
+
+class RelatedGraphEntity(BaseModel):
+    id: str
+    name: str
+    node_type: str | None = None
+    labels: list[str] = Field(default_factory=list)
+
+
 class NodeDetailsResponse(BaseModel):
     node: GraphNode
     detail: GraphNode | None = None
+    description: str | None = None
+    source_documents: list[GraphSourceDocument] = Field(default_factory=list)
+    related_entities: list[RelatedGraphEntity] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

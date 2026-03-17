@@ -6,20 +6,24 @@ from pathlib import Path
 from time import perf_counter
 from urllib.parse import quote
 import logging
+from uuid import UUID
 
 from fastapi import UploadFile
 from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.core.logging import get_logger, log_event
+from app.db.session import get_session_factory
 from app.graph.db import get_graph_session_factory, initialize_graph_database, reset_graph_db_state
 from app.graph.exceptions import GraphImportError, GraphNodeNotFoundError, GraphUnavailableError
 from app.graph.graph_runtime import GraphRuntime
+from app.repositories.document_repo import DocumentRepository
 from app.repositories.graph_repo import GraphRepository
 from app.services.runtime_status_service import runtime_status_service
 
 _runtime = GraphRuntime()
 _required_tables = {"graph_nodes", "graph_edges", "graph_sync_records", "graph_versions"}
+_detail_related_limit = 12
 logger = get_logger(__name__)
 
 
@@ -27,6 +31,7 @@ class GraphService:
     def __init__(self, runtime: GraphRuntime | None = None) -> None:
         self.runtime = runtime or _runtime
         self.repo = GraphRepository()
+        self.document_repo = DocumentRepository()
 
     def get_summary(self) -> dict:
         started = perf_counter()
@@ -402,12 +407,21 @@ class GraphService:
         self._log_graph_query_started(query_name="node_detail", node_id=node_id)
         try:
             node = self.runtime.get_node_detail(node_id)
+            source_documents = self._get_source_documents(
+                node_id=node_id,
+                fallback_title=node["properties"].get("source_document"),
+            )
+            related_entities = self._get_related_entities(node_id=node_id)
             payload = {
                 "node": node,
                 "detail": node,
+                "description": node["properties"].get("description"),
+                "source_documents": source_documents,
+                "related_entities": related_entities,
                 "metadata": {
                     "query": "node_detail",
                     "node_id": node_id,
+                    "related_entity_limit": _detail_related_limit,
                 },
             }
             self._log_graph_query_succeeded(
@@ -524,6 +538,64 @@ class GraphService:
         missing = sorted(_required_tables - tables)
         if missing:
             raise GraphImportError(f"Missing required graph tables: {', '.join(missing)}")
+
+    def _get_related_entities(self, *, node_id: str) -> list[dict]:
+        payload = self.runtime.get_neighbors(node_id, limit=min(settings.GRAPH_MAX_NEIGHBORS, _detail_related_limit))
+        related_entities: list[dict] = []
+        for item in payload["nodes"]:
+            if item["id"] == node_id:
+                continue
+            related_entities.append(
+                {
+                    "id": item["id"],
+                    "name": str(item["properties"].get("name") or item["id"]),
+                    "node_type": item["properties"].get("node_type"),
+                    "labels": item.get("labels") or [],
+                }
+            )
+        return related_entities
+
+    def _get_source_documents(self, *, node_id: str, fallback_title: object | None) -> list[dict]:
+        graph_session = get_graph_session_factory()()
+        try:
+            node_sources = self.repo.list_node_sources(graph_session, node_id=node_id)
+        finally:
+            graph_session.close()
+
+        document_ids: list[UUID] = []
+        for item in node_sources:
+            try:
+                document_ids.append(UUID(item.document_id))
+            except (TypeError, ValueError, AttributeError):
+                continue
+
+        documents_by_id: dict[str, str] = {}
+        if document_ids:
+            business_session = get_session_factory()()
+            try:
+                documents = self.document_repo.list_by_ids(business_session, document_ids=document_ids)
+            finally:
+                business_session.close()
+            documents_by_id = {str(item.id): item.filename for item in documents}
+
+        source_documents: list[dict] = []
+        seen_keys: set[tuple[str | None, str]] = set()
+        for item in node_sources:
+            document_id = item.document_id or None
+            title = documents_by_id.get(item.document_id) or document_id
+            if not title:
+                continue
+            key = (document_id, title)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            source_documents.append({"document_id": document_id, "title": title})
+
+        fallback_text = str(fallback_title).strip() if isinstance(fallback_title, str) else ""
+        if not source_documents and fallback_text:
+            source_documents.append({"document_id": None, "title": fallback_text})
+
+        return source_documents
 
     @staticmethod
     def _sync_runtime_status(summary: dict) -> None:

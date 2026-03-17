@@ -106,6 +106,7 @@ export interface GraphNode {
   id: string;
   labels: string[];
   properties: Record<string, unknown>;
+  detail?: Record<string, unknown> | null;
 }
 
 export interface GraphEdge {
@@ -129,7 +130,22 @@ export interface GraphOverview {
 export interface GraphNodeDetails {
   node: GraphNode;
   detail?: GraphNode | null;
+  description?: string | null;
+  source_documents?: GraphSourceDocument[];
+  related_entities?: RelatedGraphEntity[];
   metadata?: Record<string, unknown>;
+}
+
+export interface GraphSourceDocument {
+  document_id?: string | null;
+  title: string;
+}
+
+export interface RelatedGraphEntity {
+  id: string;
+  name: string;
+  node_type?: string | null;
+  labels: string[];
 }
 
 export interface GraphNeighbors {

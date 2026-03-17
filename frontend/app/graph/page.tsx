@@ -29,6 +29,10 @@ export default function GraphPage() {
     queryFn: () => getNodeDetails(selectedNodeId!),
     enabled: Boolean(selectedNodeId)
   });
+  const relatedNodeIds = useMemo(
+    () => (nodeDetailsQuery.data?.related_entities ?? []).map((item) => item.id),
+    [nodeDetailsQuery.data?.related_entities]
+  );
 
   const filteredGraph = useMemo(() => {
     const source = overviewQuery.data;
@@ -87,9 +91,20 @@ export default function GraphPage() {
               </div>
             </div>
 
-            <GraphCanvas nodes={filteredGraph.nodes} edges={filteredGraph.edges} onNodeClick={setSelectedNodeId} />
+            <GraphCanvas
+              nodes={filteredGraph.nodes}
+              edges={filteredGraph.edges}
+              selectedNodeId={selectedNodeId}
+              relatedNodeIds={relatedNodeIds}
+              onNodeClick={setSelectedNodeId}
+            />
 
-            <NodeDetailPanel node={nodeDetailsQuery.data?.node ?? null} />
+            <NodeDetailPanel
+              details={nodeDetailsQuery.data ?? null}
+              isLoading={nodeDetailsQuery.isLoading}
+              errorMessage={nodeDetailsQuery.isError ? (nodeDetailsQuery.error as Error).message : null}
+              onNodeSelect={setSelectedNodeId}
+            />
           </div>
         ) : null}
       </main>
