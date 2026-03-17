@@ -15,6 +15,17 @@ import { Input } from "@/components/ui/input";
 import { deleteDocument, getDocument, listDocuments, syncDocumentToDify, syncDocumentToGraph, uploadDocument } from "@/lib/api/documents";
 import { formatDateTime, formatFileSize } from "@/lib/utils";
 import type { DocumentRecord } from "@/types/api";
+import { ApiError } from "@/lib/api/client";
+
+function toErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.detail;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "请求失败";
+}
 
 export default function AdminDocumentsPage() {
   const queryClient = useQueryClient();
@@ -26,27 +37,33 @@ export default function AdminDocumentsPage() {
     enabled: Boolean(selectedDocument?.id)
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["documents"] });
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["documents"] });
+    if (selectedDocument?.id) {
+      await queryClient.invalidateQueries({ queryKey: ["document-detail", selectedDocument.id] });
+    }
+  };
   const uploadMutation = useMutation({
     mutationFn: uploadDocument,
-    onSuccess: () => {
-      invalidate();
+    onSuccess: (document) => {
+      void invalidate();
+      setSelectedDocument(document);
     }
   });
   const deleteMutation = useMutation({
     mutationFn: deleteDocument,
     onSuccess: () => {
-      invalidate();
+      void invalidate();
       setSelectedDocument(null);
     }
   });
   const syncGraphMutation = useMutation({
     mutationFn: syncDocumentToGraph,
-    onSuccess: invalidate
+    onSuccess: () => void invalidate()
   });
   const syncDifyMutation = useMutation({
     mutationFn: syncDocumentToDify,
-    onSuccess: invalidate
+    onSuccess: () => void invalidate()
   });
 
   return (
@@ -72,7 +89,7 @@ export default function AdminDocumentsPage() {
             />
             <span className="rounded-md border bg-white px-3 py-2">选择文件</span>
           </label>
-          {uploadMutation.isError ? <p className="mt-3 text-sm text-destructive">{(uploadMutation.error as Error).message}</p> : null}
+          {uploadMutation.isError ? <p className="mt-3 text-sm text-destructive">{toErrorMessage(uploadMutation.error)}</p> : null}
         </CardContent>
       </Card>
 
@@ -105,18 +122,39 @@ export default function AdminDocumentsPage() {
                 <>
                   <div>
                     <p className="font-medium">{detailQuery.data.filename}</p>
-                    <p className="text-muted-foreground">{detailQuery.data.content_type ?? detailQuery.data.source_type}</p>
+                    <p className="text-muted-foreground">{detailQuery.data.mime_type ?? detailQuery.data.content_type ?? detailQuery.data.source_type}</p>
                   </div>
                   <div className="space-y-1 leading-6 text-muted-foreground">
                     <p>状态：{detailQuery.data.status}</p>
+                    <p>Dify 同步状态：{detailQuery.data.dify_sync_status ?? "未记录"}</p>
                     <p>上传时间：{formatDateTime(detailQuery.data.uploaded_at)}</p>
                     <p>大小：{formatFileSize(detailQuery.data.file_size)}</p>
+                    <p>MIME：{detailQuery.data.mime_type ?? "未知"}</p>
+                    <p>扩展名：{detailQuery.data.file_extension ?? "未知"}</p>
                     <p>图谱同步：{detailQuery.data.synced_to_graph ? "已同步" : "未同步"}</p>
                     <p>Dify 同步：{detailQuery.data.synced_to_dify ? "已同步" : "未同步"}</p>
+                    <p>Dify File ID：{detailQuery.data.dify_upload_file_id ?? "无"}</p>
+                    <p>Dify 上传时间：{detailQuery.data.dify_uploaded_at ? formatDateTime(detailQuery.data.dify_uploaded_at) : "无"}</p>
                     <p>最近同步目标：{detailQuery.data.last_sync_target ?? "无"}</p>
                     <p>最近同步状态：{detailQuery.data.last_sync_status ?? "无"}</p>
                     <p>最近同步时间：{detailQuery.data.last_sync_at ? formatDateTime(detailQuery.data.last_sync_at) : "无"}</p>
+                    <p>文件输入变量：{detailQuery.data.dify_file_input_variable ?? "未配置"}</p>
                   </div>
+                  {detailQuery.data.note ? <p className="rounded-md bg-muted px-3 py-2 text-xs leading-5">备注：{detailQuery.data.note}</p> : null}
+                  {detailQuery.data.dify_error_message ? (
+                    <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+                      Dify 错误：{detailQuery.data.dify_error_code ? `${detailQuery.data.dify_error_code} - ` : ""}
+                      {detailQuery.data.dify_error_message}
+                    </p>
+                  ) : null}
+                  {detailQuery.data.dify_workflow_file_input ? (
+                    <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5">
+                      <p className="mb-2 font-medium text-foreground">Workflow 文件输入预览</p>
+                      <pre className="overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(detailQuery.data.dify_workflow_file_input, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <p className="leading-6 text-muted-foreground">点击表格中的“详情”后，在这里查看文件详情。第一版使用右侧面板形式，后续可替换为抽屉。</p>
@@ -125,6 +163,10 @@ export default function AdminDocumentsPage() {
           </Card>
         </div>
       ) : null}
+
+      {deleteMutation.isError ? <p className="text-sm text-destructive">删除失败：{toErrorMessage(deleteMutation.error)}</p> : null}
+      {syncGraphMutation.isError ? <p className="text-sm text-destructive">图谱同步失败：{toErrorMessage(syncGraphMutation.error)}</p> : null}
+      {syncDifyMutation.isError ? <p className="text-sm text-destructive">Dify 同步失败：{toErrorMessage(syncDifyMutation.error)}</p> : null}
     </div>
   );
 }

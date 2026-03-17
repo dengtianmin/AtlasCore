@@ -3,9 +3,12 @@ import { Badge } from "@/components/ui/badge";
 const variants: Record<string, "neutral" | "success" | "warning" | "destructive" | "accent"> = {
   ok: "success",
   uploaded: "accent",
+  syncing: "warning",
+  synced: "success",
   indexed: "success",
   graph_pending: "warning",
   graph_synced: "success",
+  not_synced: "neutral",
   failed: "destructive",
   true: "success",
   false: "neutral"

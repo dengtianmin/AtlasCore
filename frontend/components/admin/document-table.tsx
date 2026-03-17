@@ -38,7 +38,7 @@ export function DocumentTable({
               <TD>
                 <div>
                   <p className="font-medium">{item.filename}</p>
-                  <p className="text-xs text-muted-foreground">{item.content_type ?? item.source_type}</p>
+                  <p className="text-xs text-muted-foreground">{item.mime_type ?? item.content_type ?? item.source_type}</p>
                 </div>
               </TD>
               <TD>
@@ -47,9 +47,16 @@ export function DocumentTable({
               <TD>{formatDateTime(item.uploaded_at)}</TD>
               <TD>{formatFileSize(item.file_size)}</TD>
               <TD>
-                <div className="space-y-1 text-xs">
-                  <p>图谱：{item.synced_to_graph ? "已同步" : "未同步"}</p>
-                  <p>Dify：{item.synced_to_dify ? "已同步" : "未同步"}</p>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span>图谱</span>
+                    <StatusBadge value={item.synced_to_graph} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>Dify</span>
+                    <StatusBadge value={item.dify_sync_status ?? item.synced_to_dify} />
+                  </div>
+                  {item.dify_upload_file_id ? <p className="text-muted-foreground">File ID: {item.dify_upload_file_id}</p> : null}
                 </div>
               </TD>
               <TD>
