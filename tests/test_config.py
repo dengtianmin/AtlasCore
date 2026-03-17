@@ -81,6 +81,7 @@ def test_settings_defaults(monkeypatch):
     assert settings.DIFY_FILE_INPUT_VARIABLE is None
     assert settings.DIFY_ENABLE_TRACE is False
     assert settings.DIFY_USER_PREFIX == "guest"
+    assert settings.DIFY_DEBUG_LOG_PATH == "./data/dify_debug.jsonl"
     assert settings.PAGE_DEFAULTS == {}
     assert settings.FEATURE_FLAGS == {}
     assert settings.EXPORT_RULES == {}
@@ -127,6 +128,7 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("DIFY_FILE_INPUT_VARIABLE", "attachments")
     monkeypatch.setenv("DIFY_ENABLE_TRACE", "true")
     monkeypatch.setenv("DIFY_USER_PREFIX", "atlas")
+    monkeypatch.setenv("DIFY_DEBUG_LOG_PATH", "/tmp/dify-debug.jsonl")
 
     settings = Settings()
 
@@ -169,6 +171,7 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.DIFY_FILE_INPUT_VARIABLE == "attachments"
     assert settings.DIFY_ENABLE_TRACE is True
     assert settings.DIFY_USER_PREFIX == "atlas"
+    assert settings.DIFY_DEBUG_LOG_PATH == "/tmp/dify-debug.jsonl"
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):

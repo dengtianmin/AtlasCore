@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutGrid, FileText, NotebookTabs, Download, Network, LogOut } from "lucide-react";
+import { LayoutGrid, FileText, NotebookTabs, Download, Network, LogOut, FlaskConical } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const iconMap = {
   "/admin": LayoutGrid,
   "/admin/documents": FileText,
+  "/admin/dify": FlaskConical,
   "/admin/graph": Network,
   "/admin/logs": NotebookTabs,
   "/admin/exports": Download

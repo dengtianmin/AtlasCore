@@ -389,6 +389,10 @@ class DifyClient:
     def _join_url(self, path: str) -> str:
         return f"{str(self._settings.base_url or '').rstrip('/')}/v1/{path.lstrip('/')}"
 
+    @property
+    def active_settings(self) -> DifySettings:
+        return self._settings
+
     def _parse_workflow_result(self, payload: dict[str, Any]) -> DifyWorkflowResult:
         workflow_run_id = payload.get("workflow_run_id")
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}

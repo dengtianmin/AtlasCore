@@ -48,10 +48,14 @@ export default function AdminDashboardPage() {
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
         <Card>
-          <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+          <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
             <Link href="/admin/documents" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
               <p className="font-medium">文档管理</p>
               <p className="mt-2 leading-6 text-muted-foreground">上传、删除文档并触发同步。</p>
+            </Link>
+            <Link href="/admin/dify" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
+              <p className="font-medium">Dify 调试</p>
+              <p className="mt-2 leading-6 text-muted-foreground">临时提交 Base URL 与 API Key，查看参数校验和调试日志。</p>
             </Link>
             <Link href="/admin/logs" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
               <p className="font-medium">问答日志</p>

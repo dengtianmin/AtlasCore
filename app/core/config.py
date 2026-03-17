@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     DIFY_FILE_INPUT_VARIABLE: str | None = None
     DIFY_ENABLE_TRACE: bool = False
     DIFY_USER_PREFIX: str = "guest"
+    DIFY_DEBUG_LOG_PATH: str = "./data/dify_debug.jsonl"
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
 
     API_V1_PREFIX: str = ""

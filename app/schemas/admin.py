@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -104,3 +105,38 @@ class GraphFileOperationResponse(BaseModel):
     current_version: str | None
     sqlite_path: str
     last_loaded_at: datetime | None
+
+
+class DifyDebugRequest(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=1, max_length=2000)
+    timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    workflow_id: str | None = Field(default=None, max_length=255)
+    response_mode: str = Field(default="blocking", max_length=32)
+    text_input_variable: str | None = Field(default=None, max_length=128)
+    file_input_variable: str | None = Field(default=None, max_length=128)
+    enable_trace: bool = False
+    user_prefix: str = Field(default="debug", min_length=1, max_length=64)
+    sample_text: str | None = Field(default=None, max_length=4000)
+
+
+class DifyDebugResponse(BaseModel):
+    reachable: bool
+    validation_ok: bool
+    config_summary: dict[str, Any]
+    parameters: dict[str, Any] | None = None
+    info: dict[str, Any] | None = None
+    workflow_result: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+    logs_saved_to: str
+
+
+class DifyDebugLogRecord(BaseModel):
+    recorded_at: datetime
+    event: str
+    status: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DifyDebugLogListResponse(BaseModel):
+    items: list[DifyDebugLogRecord]

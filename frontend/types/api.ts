@@ -17,6 +17,42 @@ export interface HealthStatus {
   current_mode?: string;
   app_env?: string;
   service?: string;
+  dify_validation_warnings?: string[];
+}
+
+export interface DifyDebugRequest {
+  base_url: string;
+  api_key: string;
+  timeout_seconds?: number;
+  workflow_id?: string | null;
+  response_mode?: string;
+  text_input_variable?: string | null;
+  file_input_variable?: string | null;
+  enable_trace?: boolean;
+  user_prefix?: string;
+  sample_text?: string | null;
+}
+
+export interface DifyDebugResponse {
+  reachable: boolean;
+  validation_ok: boolean;
+  config_summary: Record<string, unknown>;
+  parameters?: Record<string, unknown> | null;
+  info?: Record<string, unknown> | null;
+  workflow_result?: Record<string, unknown> | null;
+  warnings: string[];
+  logs_saved_to: string;
+}
+
+export interface DifyDebugLogRecord {
+  recorded_at: string;
+  event: string;
+  status: string;
+  payload: Record<string, unknown>;
+}
+
+export interface DifyDebugLogListResponse {
+  items: DifyDebugLogRecord[];
 }
 
 export interface RootInfo {
