@@ -530,21 +530,22 @@ class GraphExtractionService:
         return payload
 
     async def _call_model(self, *, prompt_text: str, markdown: str, model_setting: GraphModelSetting) -> str:
-        api_key = self.secret_box.decrypt(model_setting.api_key_ciphertext)
-        if not model_setting.api_base_url or not api_key:
+        resolved_model_setting = self._resolve_model_runtime_settings(model_setting)
+        api_key = self.secret_box.decrypt(resolved_model_setting.api_key_ciphertext)
+        if not resolved_model_setting.api_base_url or not api_key:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Graph extraction model is not fully configured")
 
-        base_url = model_setting.api_base_url.rstrip("/")
+        base_url = resolved_model_setting.api_base_url.rstrip("/")
         url = f"{base_url}/chat/completions"
         payload = {
-            "model": model_setting.model_name,
+            "model": resolved_model_setting.model_name,
             "messages": [
                 {"role": "system", "content": prompt_text},
                 {"role": "user", "content": markdown},
             ],
             "temperature": 0,
         }
-        if not model_setting.thinking_enabled:
+        if not resolved_model_setting.thinking_enabled:
             payload["thinking"] = {"type": "disabled"}
         async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS) as client:
             response = await client.post(
@@ -738,7 +739,7 @@ class GraphExtractionService:
                 db.commit()
         if setting is None or not setting.enabled:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Graph extraction model is not configured")
-        return setting
+        return self._resolve_model_runtime_settings(setting)
 
     def _ensure_model_setting_from_env(self, db: Session, *, operator: str) -> GraphModelSetting | None:
         model_name = (settings.GRAPH_EXTRACTION_MODEL_NAME or "").strip()
@@ -759,6 +760,28 @@ class GraphExtractionService:
         )
         self.model_repo.replace_active(db, setting=setting)
         return setting
+
+    def _resolve_model_runtime_settings(self, setting: GraphModelSetting) -> GraphModelSetting:
+        api_base_url = setting.api_base_url or settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL
+        api_key_ciphertext = setting.api_key_ciphertext
+        if not api_key_ciphertext:
+            fallback_api_key = settings.resolved_graph_extraction_model_api_key
+            if fallback_api_key:
+                api_key_ciphertext = self.secret_box.encrypt(fallback_api_key)
+
+        return GraphModelSetting(
+            id=setting.id,
+            provider=setting.provider,
+            model_name=setting.model_name,
+            api_base_url=api_base_url,
+            api_key_ciphertext=api_key_ciphertext,
+            enabled=setting.enabled,
+            thinking_enabled=setting.thinking_enabled,
+            is_active=setting.is_active,
+            updated_by=setting.updated_by,
+            created_at=setting.created_at,
+            updated_at=setting.updated_at,
+        )
 
     def _get_document_or_404(self, db: Session, *, document_id: UUID) -> Document:
         document = self.document_repo.get_by_id(db, document_id)

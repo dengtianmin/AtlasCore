@@ -276,10 +276,17 @@ def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
         "ModelSetting",
         (),
         {
+            "id": uuid4(),
+            "provider": "openai-compatible",
             "model_name": "GLM-5",
             "api_base_url": "https://open.bigmodel.cn/api/paas/v4",
             "api_key_ciphertext": service.secret_box.encrypt("demo-key"),
+            "enabled": True,
             "thinking_enabled": False,
+            "is_active": True,
+            "updated_by": "admin",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
         },
     )()
 
@@ -295,3 +302,36 @@ def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
     assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     assert captured["json"]["model"] == "GLM-5"
     assert captured["json"]["thinking"] == {"type": "disabled"}
+
+
+def test_active_db_model_without_key_falls_back_to_env_key(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY", "env-fallback-key")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", None)
+
+    db = get_session_factory()()
+    try:
+        service.update_model_setting(
+            db,
+            provider="openai-compatible",
+            model_name="GLM-5",
+            api_base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key="initial-key",
+            enabled=True,
+            thinking_enabled=False,
+            operator="admin",
+        )
+        active = service.model_repo.get_active(db)
+        assert active is not None
+        active.api_key_ciphertext = None
+        db.add(active)
+        db.commit()
+        db.refresh(active)
+
+        resolved = service._require_active_model(db)
+
+        assert resolved.api_base_url == "https://open.bigmodel.cn/api/paas/v4"
+        assert service.secret_box.decrypt(resolved.api_key_ciphertext) == "env-fallback-key"
+        assert resolved.thinking_enabled is False
+    finally:
+        db.close()
