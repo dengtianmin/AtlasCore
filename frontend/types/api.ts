@@ -316,6 +316,19 @@ export interface GraphModelSetting {
   has_api_key: boolean;
 }
 
+export interface ReviewRubric {
+  rubric_text: string;
+  updated_at: string | null;
+  updated_by: string | null;
+  is_active: boolean;
+}
+
+export interface ReviewEvaluationResponse {
+  score: number;
+  reason: string;
+  rubric_updated_at: string | null;
+}
+
 export interface ExportRecord {
   export_id: string;
   export_type: string;

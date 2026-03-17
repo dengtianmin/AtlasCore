@@ -11,6 +11,7 @@ from app.models.graph_prompt_setting import GraphPromptSetting
 from app.models.graph_sync_record import GraphSyncRecord
 from app.models.graph_version import GraphVersion
 from app.models.qa_log import QuestionAnswerLog
+from app.models.review_rubric_setting import ReviewRubricSetting
 
 __all__ = [
     "AdminAccount",
@@ -26,4 +27,5 @@ __all__ = [
     "GraphExtractionTask",
     "GraphPromptSetting",
     "GraphModelSetting",
+    "ReviewRubricSetting",
 ]

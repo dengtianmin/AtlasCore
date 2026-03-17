@@ -17,6 +17,7 @@ const iconMap = {
   "/admin/graph/tasks": Network,
   "/admin/graph/prompt": Settings2,
   "/admin/graph/models": Bot,
+  "/admin/review/rubric": Settings2,
   "/admin/dify": FlaskConical,
   "/admin/graph": Network,
   "/admin/logs": NotebookTabs,

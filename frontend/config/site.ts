@@ -9,6 +9,7 @@ export const siteConfig = {
     { href: "/admin/graph/tasks", label: "抽取任务" },
     { href: "/admin/graph/prompt", label: "提取 Prompt" },
     { href: "/admin/graph/models", label: "提取模型" },
+    { href: "/admin/review/rubric", label: "评分标准" },
     { href: "/admin/dify", label: "Dify 调试" },
     { href: "/admin/graph", label: "图管理" },
     { href: "/admin/logs", label: "问答日志" },
@@ -17,6 +18,7 @@ export const siteConfig = {
   publicNav: [
     { href: "/chat", label: "聊天" },
     { href: "/graph", label: "图谱" },
+    { href: "/review", label: "评阅" },
     { href: "/admin/login", label: "管理员" }
   ]
 };
