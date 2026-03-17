@@ -25,6 +25,9 @@ async def _run_lifespan() -> None:
 def _bootstrap_runtime(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "APP_ENV", "test")
     monkeypatch.setattr(settings, "JWT_SECRET", "unit-test-secret")
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
     monkeypatch.setattr(settings, "SQLITE_PATH", str(tmp_path / "runtime" / "atlascore.db"))
     monkeypatch.setattr(settings, "CSV_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setattr(settings, "DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))

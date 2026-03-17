@@ -17,6 +17,9 @@ async def _run_lifespan(app: FastAPI) -> None:
 
 
 def test_lifespan_context_runs_without_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
     monkeypatch.setattr(settings, "SQLITE_PATH", str(tmp_path / "runtime" / "atlascore.db"))
     monkeypatch.setattr(settings, "CSV_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setattr(settings, "DOCUMENT_LOCAL_STORAGE_DIR", str(tmp_path / "uploads"))

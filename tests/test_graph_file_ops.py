@@ -19,6 +19,9 @@ from app.services.graph_service import _runtime
 
 
 def _bootstrap(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
     monkeypatch.setattr(settings, "GRAPH_INSTANCE_LOCAL_PATH", str(tmp_path / "graph" / "runtime.db"))
     monkeypatch.setattr(settings, "GRAPH_EXPORT_DIR", str(tmp_path / "graph_exports"))
     monkeypatch.setattr(settings, "GRAPH_IMPORT_DIR", str(tmp_path / "graph_imports"))

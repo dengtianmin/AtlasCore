@@ -7,42 +7,64 @@ from app.core.config import Settings
 from app.core.secrets import SecretResolutionError
 
 
-def test_settings_defaults(monkeypatch):
-    monkeypatch.delenv("APP_NAME", raising=False)
-    monkeypatch.delenv("APP_ENV", raising=False)
-    monkeypatch.delenv("PORT", raising=False)
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.delenv("APP_CONFIG_PATH", raising=False)
-    monkeypatch.delenv("SQLITE_PATH", raising=False)
-    monkeypatch.delenv("CSV_EXPORT_DIR", raising=False)
-    monkeypatch.delenv("GRAPH_ENABLED", raising=False)
-    monkeypatch.delenv("GRAPH_DEFAULT_LIMIT", raising=False)
-    monkeypatch.delenv("GRAPH_MAX_NEIGHBORS", raising=False)
-    monkeypatch.delenv("GRAPH_RELOAD_ON_START", raising=False)
-    monkeypatch.delenv("GRAPH_EXPORT_DIR", raising=False)
-    monkeypatch.delenv("GRAPH_IMPORT_DIR", raising=False)
-    monkeypatch.delenv("GRAPH_SNAPSHOT_PATH", raising=False)
-    monkeypatch.delenv("GRAPH_INSTANCE_LOCAL_PATH", raising=False)
-    monkeypatch.delenv("KEY_VAULT_ENABLED", raising=False)
-    monkeypatch.delenv("KEY_VAULT_URL", raising=False)
-    monkeypatch.delenv("AZURE_KEY_VAULT_URL", raising=False)
-    monkeypatch.delenv("KEY_VAULT_USE_MANAGED_IDENTITY", raising=False)
-    monkeypatch.delenv("KEY_VAULT_TIMEOUT_SECONDS", raising=False)
-    monkeypatch.delenv("JWT_SECRET", raising=False)
-    monkeypatch.delenv("JWT_SECRET_NAME", raising=False)
-    monkeypatch.delenv("INITIAL_ADMIN_PASSWORD", raising=False)
-    monkeypatch.delenv("INITIAL_ADMIN_PASSWORD_SECRET_NAME", raising=False)
-    monkeypatch.delenv("ADMIN_AUTH_SECRET", raising=False)
-    monkeypatch.delenv("ADMIN_AUTH_SECRET_NAME", raising=False)
-    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
-    monkeypatch.delenv("ADMIN_PASSWORD_HASH_SECRET_NAME", raising=False)
-    monkeypatch.delenv("NEO4J_URI", raising=False)
-    monkeypatch.delenv("NEO4J_USERNAME", raising=False)
-    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-    monkeypatch.delenv("DIFY_BASE_URL", raising=False)
-    monkeypatch.delenv("DIFY_API_KEY", raising=False)
-    monkeypatch.delenv("DIFY_API_KEY_SECRET_NAME", raising=False)
+@pytest.fixture(autouse=True)
+def _isolate_settings_sources(monkeypatch):
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for key in [
+        "APP_NAME",
+        "APP_ENV",
+        "PORT",
+        "LOG_LEVEL",
+        "APP_CONFIG_PATH",
+        "SQLITE_PATH",
+        "CSV_EXPORT_DIR",
+        "GRAPH_ENABLED",
+        "GRAPH_DEFAULT_LIMIT",
+        "GRAPH_MAX_NEIGHBORS",
+        "GRAPH_RELOAD_ON_START",
+        "GRAPH_EXPORT_DIR",
+        "GRAPH_IMPORT_DIR",
+        "GRAPH_SNAPSHOT_PATH",
+        "GRAPH_INSTANCE_LOCAL_PATH",
+        "GRAPH_INSTANCE_ID",
+        "GRAPH_DB_VERSION",
+        "KEY_VAULT_ENABLED",
+        "KEY_VAULT_URL",
+        "AZURE_KEY_VAULT_URL",
+        "KEY_VAULT_USE_MANAGED_IDENTITY",
+        "KEY_VAULT_TIMEOUT_SECONDS",
+        "JWT_SECRET",
+        "JWT_SECRET_NAME",
+        "INITIAL_ADMIN_USERNAME",
+        "INITIAL_ADMIN_PASSWORD",
+        "INITIAL_ADMIN_PASSWORD_SECRET_NAME",
+        "ADMIN_AUTH_SECRET",
+        "ADMIN_AUTH_SECRET_NAME",
+        "ADMIN_PASSWORD_HASH",
+        "ADMIN_PASSWORD_HASH_SECRET_NAME",
+        "NEO4J_URI",
+        "NEO4J_USERNAME",
+        "NEO4J_PASSWORD",
+        "DIFY_BASE_URL",
+        "DIFY_API_BASE",
+        "DIFY_API_KEY",
+        "DIFY_API_KEY_SECRET_NAME",
+        "DIFY_WORKFLOW_ID",
+        "DIFY_RESPONSE_MODE",
+        "DIFY_TEXT_INPUT_VARIABLE",
+        "DIFY_FILE_INPUT_VARIABLE",
+        "DIFY_ENABLE_TRACE",
+        "DIFY_USER_PREFIX",
+        "DIFY_DEBUG_LOG_PATH",
+        "DOCUMENT_LOCAL_STORAGE_DIR",
+        "DOCUMENT_MAX_FILE_SIZE_BYTES",
+        "DOCUMENT_ALLOWED_EXTENSIONS",
+        "DOCUMENT_ALLOWED_MIME_TYPES",
+    ]:
+        monkeypatch.delenv(key, raising=False)
 
+
+def test_settings_defaults(monkeypatch):
     settings = Settings()
 
     assert settings.APP_NAME == "AtlasCore API"

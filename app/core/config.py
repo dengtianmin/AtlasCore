@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import AliasChoices, Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from app.core.secrets import ResolvedSecret, SecretResolutionError, SecretResolver
 
@@ -114,6 +114,81 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        class ConfigFileSettingsSource(PydanticBaseSettingsSource):
+            def __call__(self) -> dict[str, Any]:
+                init_values = init_settings()
+                env_values = env_settings()
+                dotenv_values = dotenv_settings()
+                config_path = (
+                    init_values.get("APP_CONFIG_PATH")
+                    or env_values.get("APP_CONFIG_PATH")
+                    or dotenv_values.get("APP_CONFIG_PATH")
+                    or os.getenv("APP_CONFIG_PATH")
+                )
+                file_payload = _load_config_file(config_path)
+
+                app_payload = file_payload.get("app", {})
+                admin_payload = file_payload.get("admin", {})
+                defaults_payload = file_payload.get("defaults", {})
+                export_payload = file_payload.get("export", {})
+                graph_payload = file_payload.get("graph", {})
+                integrations_payload = file_payload.get("integrations", {})
+
+                normalized_payload = {
+                    "APP_NAME": app_payload.get("name"),
+                    "APP_VERSION": app_payload.get("version"),
+                    "APP_ENV": app_payload.get("env"),
+                    "HOST": app_payload.get("host"),
+                    "PORT": app_payload.get("port"),
+                    "LOG_LEVEL": app_payload.get("log_level"),
+                    "API_V1_PREFIX": app_payload.get("api_v1_prefix"),
+                    "INITIAL_ADMIN_USERNAME": admin_payload.get("initial_username"),
+                    "PAGE_DEFAULTS": defaults_payload.get("page", {}),
+                    "FEATURE_FLAGS": defaults_payload.get("features", {}),
+                    "EXPORT_RULES": export_payload.get("rules", {}),
+                    "FIXED_MAPPINGS": defaults_payload.get("mappings", {}),
+                    "RESERVED_INTEGRATIONS": integrations_payload,
+                    "GRAPH_ENABLED": defaults_payload.get("features", {}).get("enable_graph_api"),
+                    "GRAPH_RELOAD_ON_START": defaults_payload.get("features", {}).get("graph_reload_on_start"),
+                    "GRAPH_DEFAULT_LIMIT": graph_payload.get("default_limit"),
+                    "GRAPH_MAX_NEIGHBORS": graph_payload.get("max_neighbors"),
+                    "GRAPH_EXPORT_DIR": graph_payload.get("export_dir"),
+                    "GRAPH_IMPORT_DIR": graph_payload.get("import_dir"),
+                    "GRAPH_SNAPSHOT_PATH": graph_payload.get("snapshot_path"),
+                    "GRAPH_INSTANCE_LOCAL_PATH": graph_payload.get("instance_local_path"),
+                    "GRAPH_INSTANCE_ID": graph_payload.get("instance_id"),
+                    "GRAPH_DB_VERSION": graph_payload.get("db_version"),
+                    "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
+                    "DIFY_TIMEOUT_SECONDS": integrations_payload.get("dify", {}).get("timeout_seconds"),
+                    "DIFY_WORKFLOW_ID": integrations_payload.get("dify", {}).get("workflow_id"),
+                    "DIFY_RESPONSE_MODE": integrations_payload.get("dify", {}).get("response_mode"),
+                    "DIFY_TEXT_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("text_input_variable"),
+                    "DIFY_FILE_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("file_input_variable"),
+                    "DIFY_ENABLE_TRACE": integrations_payload.get("dify", {}).get("enable_trace"),
+                    "DIFY_USER_PREFIX": integrations_payload.get("dify", {}).get("user_prefix"),
+                }
+                return {key: value for key, value in normalized_payload.items() if value is not None}
+
+            def get_field_value(self, field, field_name: str) -> tuple[Any, str, bool]:
+                raise NotImplementedError
+
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            ConfigFileSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     @property
     def is_production(self) -> bool:
@@ -383,56 +458,6 @@ class Settings(BaseSettings):
             "readable": self._is_readable(resolved, path_kind=path_kind) if check_read else None,
             "writable": self._is_writable(resolved, path_kind=path_kind) if check_write else None,
         }
-
-    @model_validator(mode="before")
-    @classmethod
-    def apply_config_file(cls, data: Any) -> Any:
-        values = dict(data) if isinstance(data, dict) else {}
-        config_path = values.get("APP_CONFIG_PATH") or os.getenv("APP_CONFIG_PATH")
-        file_payload = _load_config_file(config_path)
-
-        app_payload = file_payload.get("app", {})
-        admin_payload = file_payload.get("admin", {})
-        defaults_payload = file_payload.get("defaults", {})
-        export_payload = file_payload.get("export", {})
-        graph_payload = file_payload.get("graph", {})
-        integrations_payload = file_payload.get("integrations", {})
-
-        normalized_payload = {
-            "APP_NAME": app_payload.get("name"),
-            "APP_VERSION": app_payload.get("version"),
-            "APP_ENV": app_payload.get("env"),
-            "HOST": app_payload.get("host"),
-            "PORT": app_payload.get("port"),
-            "LOG_LEVEL": app_payload.get("log_level"),
-            "API_V1_PREFIX": app_payload.get("api_v1_prefix"),
-            "INITIAL_ADMIN_USERNAME": admin_payload.get("initial_username"),
-            "PAGE_DEFAULTS": defaults_payload.get("page", {}),
-            "FEATURE_FLAGS": defaults_payload.get("features", {}),
-            "EXPORT_RULES": export_payload.get("rules", {}),
-            "FIXED_MAPPINGS": defaults_payload.get("mappings", {}),
-            "RESERVED_INTEGRATIONS": integrations_payload,
-            "GRAPH_ENABLED": defaults_payload.get("features", {}).get("enable_graph_api"),
-            "GRAPH_RELOAD_ON_START": defaults_payload.get("features", {}).get("graph_reload_on_start"),
-            "GRAPH_DEFAULT_LIMIT": graph_payload.get("default_limit"),
-            "GRAPH_MAX_NEIGHBORS": graph_payload.get("max_neighbors"),
-            "GRAPH_EXPORT_DIR": graph_payload.get("export_dir"),
-            "GRAPH_IMPORT_DIR": graph_payload.get("import_dir"),
-            "GRAPH_SNAPSHOT_PATH": graph_payload.get("snapshot_path"),
-            "GRAPH_INSTANCE_LOCAL_PATH": graph_payload.get("instance_local_path"),
-            "GRAPH_INSTANCE_ID": graph_payload.get("instance_id"),
-            "GRAPH_DB_VERSION": graph_payload.get("db_version"),
-            "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
-            "DIFY_TIMEOUT_SECONDS": integrations_payload.get("dify", {}).get("timeout_seconds"),
-            "DIFY_WORKFLOW_ID": integrations_payload.get("dify", {}).get("workflow_id"),
-            "DIFY_RESPONSE_MODE": integrations_payload.get("dify", {}).get("response_mode"),
-            "DIFY_TEXT_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("text_input_variable"),
-            "DIFY_FILE_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("file_input_variable"),
-            "DIFY_ENABLE_TRACE": integrations_payload.get("dify", {}).get("enable_trace"),
-            "DIFY_USER_PREFIX": integrations_payload.get("dify", {}).get("user_prefix"),
-        }
-        normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
-        return _deep_merge(normalized_payload, values)
 
     @model_validator(mode="after")
     def validate_critical_config(self) -> "Settings":
