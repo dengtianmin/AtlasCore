@@ -213,6 +213,7 @@ class GraphModelSettingResponse(BaseModel):
     model_name: str
     api_base_url: str | None = None
     enabled: bool
+    thinking_enabled: bool
     is_active: bool
     updated_at: datetime | None = None
     updated_by: str | None = None
@@ -225,6 +226,7 @@ class GraphModelSettingUpdateRequest(BaseModel):
     api_base_url: str | None = Field(default=None, max_length=1000)
     api_key: str | None = Field(default=None, max_length=2000)
     enabled: bool = True
+    thinking_enabled: bool = True
 
 
 class GraphSqliteActivateResponse(GraphFileOperationResponse):

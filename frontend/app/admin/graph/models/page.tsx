@@ -20,7 +20,8 @@ export default function AdminGraphModelsPage() {
     model_name: "",
     api_base_url: "",
     api_key: "",
-    enabled: true
+    enabled: true,
+    thinking_enabled: true
   });
   const updateMutation = useMutation({
     mutationFn: updateModelSetting,
@@ -37,7 +38,8 @@ export default function AdminGraphModelsPage() {
         model_name: modelQuery.data.model_name,
         api_base_url: modelQuery.data.api_base_url ?? "",
         api_key: "",
-        enabled: modelQuery.data.enabled
+        enabled: modelQuery.data.enabled,
+        thinking_enabled: modelQuery.data.thinking_enabled
       });
     }
   }, [modelQuery.data]);
@@ -59,6 +61,7 @@ export default function AdminGraphModelsPage() {
     model_name: "",
     api_base_url: null,
     enabled: false,
+    thinking_enabled: true,
     is_active: false,
     updated_at: null,
     updated_by: null,
@@ -75,6 +78,7 @@ export default function AdminGraphModelsPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p>已配置 API Key：{model.has_api_key ? "是" : "否"}</p>
+          <p>思考能力：{model.thinking_enabled ? "开启" : "关闭"}</p>
           <p>最近更新时间：{formatDateTime(model.updated_at)}</p>
           <p>最近更新人：{model.updated_by ?? "未记录"}</p>
         </CardContent>
@@ -93,6 +97,14 @@ export default function AdminGraphModelsPage() {
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />
               启用当前模型
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.thinking_enabled}
+                onChange={(event) => setForm((current) => ({ ...current, thinking_enabled: event.target.checked }))}
+              />
+              开启模型思考能力
             </label>
             <Button>{updateMutation.isPending ? "保存中..." : "保存模型配置"}</Button>
           </form>

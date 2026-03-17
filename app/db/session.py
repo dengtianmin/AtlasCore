@@ -68,6 +68,9 @@ def _ensure_sqlite_schema_alignment(engine: Engine) -> None:
             "ALTER TABLE documents ADD COLUMN invalidated_at DATETIME",
             "ALTER TABLE documents ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1",
         ],
+        "graph_model_settings": [
+            "ALTER TABLE graph_model_settings ADD COLUMN thinking_enabled BOOLEAN NOT NULL DEFAULT 1",
+        ],
     }
 
     with engine.begin() as connection:

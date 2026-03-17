@@ -293,6 +293,7 @@ export interface GraphModelSetting {
   model_name: string;
   api_base_url: string | null;
   enabled: boolean;
+  thinking_enabled: boolean;
   is_active: boolean;
   updated_at: string | null;
   updated_by: string | null;

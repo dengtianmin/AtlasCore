@@ -63,6 +63,7 @@ def _isolate_settings_sources(monkeypatch):
         "GRAPH_EXTRACTION_MODEL_API_KEY",
         "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
         "GRAPH_EXTRACTION_MODEL_ENABLED",
+        "GRAPH_EXTRACTION_MODEL_THINKING_ENABLED",
         "DOCUMENT_LOCAL_STORAGE_DIR",
         "DOCUMENT_MAX_FILE_SIZE_BYTES",
         "DOCUMENT_ALLOWED_EXTENSIONS",
@@ -118,6 +119,7 @@ def test_settings_defaults(monkeypatch):
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY is None
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME is None
     assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is False
+    assert settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED is True
     assert settings.PAGE_DEFAULTS == {}
     assert settings.FEATURE_FLAGS == {}
     assert settings.EXPORT_RULES == {}
@@ -172,6 +174,7 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_KEY", "graph-api-key")
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", "graph-model-api-key")
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_ENABLED", "true")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_THINKING_ENABLED", "false")
 
     settings = Settings()
 
@@ -222,6 +225,7 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY == "graph-api-key"
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME == "graph-model-api-key"
     assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is True
+    assert settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED is False
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):

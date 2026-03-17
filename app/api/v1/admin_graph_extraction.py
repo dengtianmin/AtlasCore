@@ -212,6 +212,7 @@ def update_model_settings(
                 api_base_url=payload.api_base_url,
                 api_key=payload.api_key,
                 enabled=payload.enabled,
+                thinking_enabled=payload.thinking_enabled,
                 operator=current_admin.username,
             )
         )

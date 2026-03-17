@@ -66,6 +66,7 @@ def test_prompt_and_model_settings_mask_api_key(monkeypatch, tmp_path):
             api_base_url="https://llm.example.com/v1",
             api_key="secret-key",
             enabled=True,
+            thinking_enabled=True,
             operator="admin",
         )
         assert model["has_api_key"] is True
@@ -83,6 +84,7 @@ def test_env_defaults_seed_model_and_prompt_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY", "env-secret-key")
     monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", None)
     monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_ENABLED", True)
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_THINKING_ENABLED", False)
     db = get_session_factory()()
     try:
         prompt = service.get_prompt_setting(db)
@@ -93,6 +95,7 @@ def test_env_defaults_seed_model_and_prompt_settings(monkeypatch, tmp_path):
         assert model["model_name"] == "gpt-4o-mini"
         assert model["api_base_url"] == "https://api.openai.com/v1"
         assert model["enabled"] is True
+        assert model["thinking_enabled"] is False
         assert model["has_api_key"] is True
     finally:
         db.close()
@@ -110,6 +113,7 @@ def test_create_extraction_task_builds_graph(monkeypatch, tmp_path):
             api_base_url="https://llm.example.com/v1",
             api_key="secret-key",
             enabled=True,
+            thinking_enabled=True,
             operator="admin",
         )
 
@@ -240,3 +244,54 @@ def test_single_document_extraction_merges_chunk_results(monkeypatch, tmp_path):
     assert len(calls) >= 2
     assert len(payload.nodes) == len(calls) * 2
     assert len(payload.edges) == len(calls)
+
+
+def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"nodes\": [], \"edges\": []}"}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.graph_extraction_service.httpx.AsyncClient", lambda timeout: FakeClient())
+
+    model_setting = type(
+        "ModelSetting",
+        (),
+        {
+            "model_name": "GLM-5",
+            "api_base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key_ciphertext": service.secret_box.encrypt("demo-key"),
+            "thinking_enabled": False,
+        },
+    )()
+
+    content = asyncio.run(
+        service._call_model(
+            prompt_text="prompt",
+            markdown="markdown",
+            model_setting=model_setting,
+        )
+    )
+
+    assert content == "{\"nodes\": [], \"edges\": []}"
+    assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    assert captured["json"]["model"] == "GLM-5"
+    assert captured["json"]["thinking"] == {"type": "disabled"}

@@ -16,6 +16,7 @@ class GraphModelSetting(Base, TimestampMixin):
     model_name: Mapped[str] = mapped_column(String(255), nullable=False)
     api_base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     api_key_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thinking_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_by: Mapped[str | None] = mapped_column(String(100), nullable=True)

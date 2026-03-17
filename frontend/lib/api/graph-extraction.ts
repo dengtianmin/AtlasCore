@@ -80,10 +80,11 @@ export function getModelSetting() {
 export function updateModelSetting(payload: {
   provider: string;
   model_name: string;
-  api_base_url?: string | null;
-  api_key?: string | null;
-  enabled: boolean;
-}) {
+    api_base_url?: string | null;
+    api_key?: string | null;
+    enabled: boolean;
+    thinking_enabled: boolean;
+  }) {
   return requestJson<GraphModelSetting>("/api/admin/graph/model-settings", {
     method: "PUT",
     body: payload

@@ -289,6 +289,7 @@ class GraphExtractionService:
                 "model_name": settings.GRAPH_EXTRACTION_MODEL_NAME or "",
                 "api_base_url": settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL,
                 "enabled": settings.GRAPH_EXTRACTION_MODEL_ENABLED,
+                "thinking_enabled": settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED,
                 "is_active": False,
                 "updated_at": None,
                 "updated_by": None,
@@ -305,6 +306,7 @@ class GraphExtractionService:
         api_base_url: str | None,
         api_key: str | None,
         enabled: bool,
+        thinking_enabled: bool,
         operator: str,
     ) -> dict:
         current = self.model_repo.get_active(db)
@@ -317,6 +319,7 @@ class GraphExtractionService:
             api_base_url=api_base_url.strip() if api_base_url else None,
             api_key_ciphertext=ciphertext,
             enabled=enabled,
+            thinking_enabled=thinking_enabled,
             is_active=True,
             updated_by=operator,
         )
@@ -541,6 +544,8 @@ class GraphExtractionService:
             ],
             "temperature": 0,
         }
+        if not model_setting.thinking_enabled:
+            payload["thinking"] = {"type": "disabled"}
         async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS) as client:
             response = await client.post(
                 url,
@@ -706,6 +711,7 @@ class GraphExtractionService:
             "model_name": setting.model_name,
             "api_base_url": setting.api_base_url,
             "enabled": setting.enabled,
+            "thinking_enabled": setting.thinking_enabled,
             "is_active": setting.is_active,
             "updated_at": setting.updated_at,
             "updated_by": setting.updated_by,
@@ -747,6 +753,7 @@ class GraphExtractionService:
             api_base_url=api_base_url or None,
             api_key_ciphertext=self.secret_box.encrypt(api_key.strip()) if api_key else None,
             enabled=settings.GRAPH_EXTRACTION_MODEL_ENABLED,
+            thinking_enabled=settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED,
             is_active=True,
             updated_by=operator,
         )
