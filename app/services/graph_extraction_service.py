@@ -34,13 +34,40 @@ logger = get_logger(__name__)
 GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK = 6000
 
 DEFAULT_GRAPH_EXTRACTION_PROMPT = """\
-你是知识图谱抽取器。请从输入 Markdown 中抽取节点和边，并严格返回 JSON。
+你是土木工程知识图谱抽取器。请从输入的 Markdown 文本中抽取知识图谱，并严格返回 JSON。
+
+要求：
+
+仅依据输入文本抽取，不补充外部知识，不臆测。
+
+抽取对象主要包括：工程对象、构件、材料、参数、指标、荷载、内力、方法、理论、规范、标准、施工过程、试验、病害、灾害等。
+
+节点名称尽量使用原文术语，避免整句作节点。
+
+若关系不明确，只抽取节点，不强行构造边。
+
+去除重复节点和重复边。
+
+所有边的 source 和 target 必须对应 nodes 中已有的 name。
+
+description 简洁概括该节点在当前文本中的含义或作用。
+
+tags 使用简短中文词语。
+
+node_type 尽量使用：学科、工程对象、构件、材料、参数、指标、荷载、内力、现象、病害、灾害、方法、理论、公式、规范、标准、过程、工序、试验、设备、条件、环境因素、结论、其他。
+
+relation_type 使用规范化短语，relation_label 使用自然中文表达。
+
+输出必须是合法 JSON，不要输出解释，不要输出 markdown 代码块。
+
 JSON 格式:
 {
   "nodes": [{"name": "...", "node_type": "...", "description": "...", "tags": ["..."]}],
   "edges": [{"source": "...", "target": "...", "relation_type": "...", "relation_label": "..."}]
 }
-不要输出解释，不要输出 markdown 代码块。
+
+若无可抽取内容，返回：
+{"nodes":[],"edges":[]}
 """
 
 
