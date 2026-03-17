@@ -154,6 +154,29 @@ class GraphExtractionService:
         self.document_repo.delete(db, doc=document)
         db.commit()
 
+    def clear_graph_assets(self, db: Session) -> dict:
+        storage = DocumentStorage()
+        managed_documents = [
+            *self.document_repo.list_by_file_type(db, file_type="md", limit=1000, offset=0),
+            *self.document_repo.list_by_file_type(db, file_type="sqlite", limit=1000, offset=0),
+        ]
+        deleted_file_count = 0
+        for document in managed_documents:
+            local_path = document.local_path or document.source_uri
+            if local_path and Path(local_path).exists():
+                storage.delete(local_path)
+                deleted_file_count += 1
+
+        deleted_document_count = len(managed_documents)
+        deleted_task_count = len(self.task_repo.list_recent(db, limit=1000, offset=0))
+        self.document_repo.delete_by_file_types(db, file_types=["md", "sqlite"])
+        self.task_repo.delete_all(db)
+        return {
+            "deleted_document_count": deleted_document_count,
+            "deleted_task_count": deleted_task_count,
+            "deleted_file_count": deleted_file_count,
+        }
+
     def activate_sqlite_file(self, db: Session, *, document_id: UUID, operator: str) -> dict:
         document = self._get_document_or_404(db, document_id=document_id)
         if document.file_type != "sqlite":

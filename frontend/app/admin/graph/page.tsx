@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { downloadGraphExport, exportGraph, getGraphAdminStatus, importGraph, reloadGraph } from "@/lib/api/graph-admin";
+import { clearGraph, downloadGraphExport, exportGraph, getGraphAdminStatus, importGraph, reloadGraph } from "@/lib/api/graph-admin";
 
 function formatDateTime(value: string | null) {
   if (!value) {
@@ -61,6 +61,23 @@ export default function AdminGraphPage() {
     }
   });
 
+  const clearMutation = useMutation({
+    mutationFn: clearGraph,
+    onSuccess: async (payload) => {
+      setMessage(
+        `图谱已清空：删除 ${payload.deleted_document_count} 条文件记录、${payload.deleted_task_count} 条任务记录、${payload.deleted_file_count} 个物理文件。`
+      );
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      await queryClient.invalidateQueries({ queryKey: ["admin-graph-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph-sqlite-files"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph-md-files"] });
+      await queryClient.invalidateQueries({ queryKey: ["graph-extraction-tasks"] });
+    }
+  });
+
   const status = statusQuery.data;
 
   return (
@@ -75,6 +92,18 @@ export default function AdminGraphPage() {
             </Button>
             <Button onClick={() => reloadMutation.mutate()} disabled={reloadMutation.isPending}>
               {reloadMutation.isPending ? "重载中..." : "重载图"}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const confirmed = window.confirm("确认清空当前图谱及其管理资产吗？该操作会删除节点、边、图谱文件记录、抽取任务和已上传文件，且不可恢复。");
+                if (confirmed) {
+                  clearMutation.mutate();
+                }
+              }}
+              disabled={clearMutation.isPending}
+            >
+              {clearMutation.isPending ? "清空中..." : "清空图谱"}
             </Button>
           </>
         }

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document
@@ -119,6 +119,12 @@ class DocumentRepository:
 
     def delete(self, db: Session, *, doc: Document) -> None:
         db.delete(doc)
+        db.flush()
+
+    def delete_by_file_types(self, db: Session, *, file_types: list[str]) -> None:
+        if not file_types:
+            return
+        db.execute(delete(Document).where(Document.file_type.in_(file_types)))
         db.flush()
 
     def save(self, db: Session, *, doc: Document) -> Document:

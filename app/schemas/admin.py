@@ -122,6 +122,19 @@ class GraphFileOperationResponse(BaseModel):
     last_loaded_at: datetime | None
 
 
+class GraphClearResponse(BaseModel):
+    cleared_scope: list[str]
+    deleted_document_count: int
+    deleted_task_count: int
+    deleted_file_count: int
+    loaded: bool
+    node_count: int
+    edge_count: int
+    current_version: str | None
+    sqlite_path: str
+    last_loaded_at: datetime | None
+
+
 class GraphFileRecordResponse(BaseModel):
     id: UUID
     filename: str

@@ -193,6 +193,19 @@ export interface GraphFileOperation {
   last_loaded_at: string | null;
 }
 
+export interface GraphClear {
+  cleared_scope: string[];
+  deleted_document_count: number;
+  deleted_task_count: number;
+  deleted_file_count: number;
+  loaded: boolean;
+  node_count: number;
+  edge_count: number;
+  current_version: string | null;
+  sqlite_path: string;
+  last_loaded_at: string | null;
+}
+
 export interface GraphReload {
   loaded: boolean;
   node_count: number;

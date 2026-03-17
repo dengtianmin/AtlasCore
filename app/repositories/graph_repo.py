@@ -135,3 +135,11 @@ class GraphRepository:
         for item in edges:
             db.add(item)
         db.flush()
+
+    def clear_graph_contents(self, db: Session) -> None:
+        db.execute(delete(GraphNodeSource))
+        db.execute(delete(GraphEdge))
+        db.execute(delete(GraphNode))
+        db.execute(delete(GraphSyncRecord))
+        db.execute(delete(GraphVersion))
+        db.flush()

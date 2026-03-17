@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.graph_extraction_task import GraphExtractionTask
@@ -31,3 +31,7 @@ class GraphExtractionTaskRepository:
         db.flush()
         db.refresh(task)
         return task
+
+    def delete_all(self, db: Session) -> None:
+        db.execute(delete(GraphExtractionTask))
+        db.flush()

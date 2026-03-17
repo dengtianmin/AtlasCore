@@ -1,6 +1,6 @@
 import { requestBlob, requestJson } from "@/lib/api/client";
 import { triggerBrowserDownload } from "@/lib/utils";
-import type { GraphAdminStatus, GraphFileOperation, GraphReload } from "@/types/api";
+import type { GraphAdminStatus, GraphClear, GraphFileOperation, GraphReload } from "@/types/api";
 
 export function getGraphAdminStatus() {
   return requestJson<GraphAdminStatus>("/api/admin/graph/status");
@@ -24,6 +24,12 @@ export function importGraph(file: File) {
   return requestJson<GraphFileOperation>("/api/admin/graph/import", {
     method: "POST",
     body: formData
+  });
+}
+
+export function clearGraph() {
+  return requestJson<GraphClear>("/api/admin/graph/clear", {
+    method: "POST"
   });
 }
 

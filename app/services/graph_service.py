@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import UploadFile
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger, log_event
@@ -191,6 +192,77 @@ class GraphService:
 
     def get_graph_session(self):
         return get_graph_session_factory()()
+
+    def clear_graph(self, db: Session, *, operator: str) -> dict:
+        started_at = datetime.now(UTC)
+        started = perf_counter()
+        log_event(
+            logger,
+            logging.WARNING,
+            "graph_clear_started",
+            "started",
+            instance_id=settings.GRAPH_INSTANCE_ID,
+            operator=operator,
+        )
+        try:
+            self.runtime.reset()
+            graph_session = get_graph_session_factory()()
+            try:
+                self.repo.clear_graph_contents(graph_session)
+                graph_session.commit()
+            finally:
+                graph_session.close()
+
+            from app.services.graph_extraction_service import graph_extraction_service
+
+            asset_summary = graph_extraction_service.clear_graph_assets(db)
+            db.commit()
+
+            reset_graph_db_state()
+            initialize_graph_database()
+            self.runtime.reset()
+            latest = self.runtime.reload_graph()
+            self._sync_runtime_status(latest)
+            runtime_status_service.record_graph_import(
+                {
+                    "status": "cleared",
+                    "filename": None,
+                    "file_path": str(settings.graph_instance_path),
+                    "version": None,
+                    "operator": operator,
+                    "cleared_at": started_at,
+                }
+            )
+            log_event(
+                logger,
+                logging.WARNING,
+                "graph_clear_succeeded",
+                "success",
+                instance_id=settings.GRAPH_INSTANCE_ID,
+                operator=operator,
+                deleted_document_count=asset_summary["deleted_document_count"],
+                deleted_task_count=asset_summary["deleted_task_count"],
+                deleted_file_count=asset_summary["deleted_file_count"],
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
+            return {
+                "cleared_scope": ["graph_sqlite_runtime", "graph_managed_files", "graph_extraction_tasks"],
+                **asset_summary,
+                **latest,
+            }
+        except Exception as exc:
+            db.rollback()
+            runtime_status_service.record_error(error_type="graph_clear_error", detail=str(exc))
+            log_event(
+                logger,
+                logging.ERROR,
+                "graph_clear_failed",
+                "failed",
+                instance_id=settings.GRAPH_INSTANCE_ID,
+                operator=operator,
+                detail=str(exc),
+            )
+            raise
 
     def _import_graph_sqlite_from_reader(self, *, reader, filename: str, operator: str) -> dict:
         import_dir = Path(settings.GRAPH_IMPORT_DIR).expanduser()
