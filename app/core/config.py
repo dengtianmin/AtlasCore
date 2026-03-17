@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     DIFY_ENABLE_TRACE: bool = False
     DIFY_USER_PREFIX: str = "guest"
     DIFY_DEBUG_LOG_PATH: str = "./data/dify_debug.jsonl"
+    GRAPH_EXTRACTION_PROMPT: str | None = None
+    GRAPH_EXTRACTION_MODEL_PROVIDER: str = "openai-compatible"
+    GRAPH_EXTRACTION_MODEL_NAME: str | None = None
+    GRAPH_EXTRACTION_MODEL_API_BASE_URL: str | None = None
+    GRAPH_EXTRACTION_MODEL_API_KEY: str | None = None
+    GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME: str | None = None
+    GRAPH_EXTRACTION_MODEL_ENABLED: bool = False
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
     DOCUMENT_MAX_FILE_SIZE_BYTES: int = Field(default=15 * 1024 * 1024, gt=0)
     DOCUMENT_ALLOWED_EXTENSIONS: str | None = None
@@ -303,6 +310,13 @@ class Settings(BaseSettings):
         ).value
 
     @property
+    def resolved_graph_extraction_model_api_key(self) -> str | None:
+        return self.resolve_secret(
+            env_var="GRAPH_EXTRACTION_MODEL_API_KEY",
+            secret_name_var="GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
+        ).value
+
+    @property
     def dify_settings(self):
         from app.integrations.dify.schemas import DifySettings
 
@@ -325,6 +339,10 @@ class Settings(BaseSettings):
             "ADMIN_AUTH_SECRET": ("ADMIN_AUTH_SECRET", "ADMIN_AUTH_SECRET_NAME"),
             "ADMIN_PASSWORD_HASH": ("ADMIN_PASSWORD_HASH", "ADMIN_PASSWORD_HASH_SECRET_NAME"),
             "DIFY_API_KEY": ("DIFY_API_KEY", "DIFY_API_KEY_SECRET_NAME"),
+            "GRAPH_EXTRACTION_MODEL_API_KEY": (
+                "GRAPH_EXTRACTION_MODEL_API_KEY",
+                "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
+            ),
         }
         summary: dict[str, dict[str, str | bool]] = {}
         for label, (env_var, secret_name_var) in tracked.items():
@@ -418,6 +436,9 @@ class Settings(BaseSettings):
             "graph_enabled": self.GRAPH_ENABLED,
             "graph_instance_id": self.GRAPH_INSTANCE_ID,
             "graph_db_version": self.GRAPH_DB_VERSION,
+            "graph_extraction_model_enabled": self.GRAPH_EXTRACTION_MODEL_ENABLED,
+            "graph_extraction_model_provider": self.GRAPH_EXTRACTION_MODEL_PROVIDER,
+            "graph_extraction_model_name": self.GRAPH_EXTRACTION_MODEL_NAME,
             "dify_configured": self.is_dify_configured(),
             "admin_auth_configured": self.is_admin_auth_configured(),
             "paths": path_summary,

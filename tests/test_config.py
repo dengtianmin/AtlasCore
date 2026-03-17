@@ -56,6 +56,13 @@ def _isolate_settings_sources(monkeypatch):
         "DIFY_ENABLE_TRACE",
         "DIFY_USER_PREFIX",
         "DIFY_DEBUG_LOG_PATH",
+        "GRAPH_EXTRACTION_PROMPT",
+        "GRAPH_EXTRACTION_MODEL_PROVIDER",
+        "GRAPH_EXTRACTION_MODEL_NAME",
+        "GRAPH_EXTRACTION_MODEL_API_BASE_URL",
+        "GRAPH_EXTRACTION_MODEL_API_KEY",
+        "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
+        "GRAPH_EXTRACTION_MODEL_ENABLED",
         "DOCUMENT_LOCAL_STORAGE_DIR",
         "DOCUMENT_MAX_FILE_SIZE_BYTES",
         "DOCUMENT_ALLOWED_EXTENSIONS",
@@ -104,6 +111,13 @@ def test_settings_defaults(monkeypatch):
     assert settings.DIFY_ENABLE_TRACE is False
     assert settings.DIFY_USER_PREFIX == "guest"
     assert settings.DIFY_DEBUG_LOG_PATH == "./data/dify_debug.jsonl"
+    assert settings.GRAPH_EXTRACTION_PROMPT is None
+    assert settings.GRAPH_EXTRACTION_MODEL_PROVIDER == "openai-compatible"
+    assert settings.GRAPH_EXTRACTION_MODEL_NAME is None
+    assert settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL is None
+    assert settings.GRAPH_EXTRACTION_MODEL_API_KEY is None
+    assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME is None
+    assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is False
     assert settings.PAGE_DEFAULTS == {}
     assert settings.FEATURE_FLAGS == {}
     assert settings.EXPORT_RULES == {}
@@ -151,6 +165,13 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("DIFY_ENABLE_TRACE", "true")
     monkeypatch.setenv("DIFY_USER_PREFIX", "atlas")
     monkeypatch.setenv("DIFY_DEBUG_LOG_PATH", "/tmp/dify-debug.jsonl")
+    monkeypatch.setenv("GRAPH_EXTRACTION_PROMPT", "extract prompt")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_NAME", "gpt-4o-mini")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_KEY", "graph-api-key")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", "graph-model-api-key")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_ENABLED", "true")
 
     settings = Settings()
 
@@ -194,6 +215,13 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.DIFY_ENABLE_TRACE is True
     assert settings.DIFY_USER_PREFIX == "atlas"
     assert settings.DIFY_DEBUG_LOG_PATH == "/tmp/dify-debug.jsonl"
+    assert settings.GRAPH_EXTRACTION_PROMPT == "extract prompt"
+    assert settings.GRAPH_EXTRACTION_MODEL_PROVIDER == "openai-compatible"
+    assert settings.GRAPH_EXTRACTION_MODEL_NAME == "gpt-4o-mini"
+    assert settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL == "https://api.openai.com/v1"
+    assert settings.GRAPH_EXTRACTION_MODEL_API_KEY == "graph-api-key"
+    assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME == "graph-model-api-key"
+    assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is True
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):

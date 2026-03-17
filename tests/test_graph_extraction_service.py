@@ -70,6 +70,30 @@ def test_prompt_and_model_settings_mask_api_key(monkeypatch, tmp_path):
         db.close()
 
 
+def test_env_defaults_seed_model_and_prompt_settings(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_PROMPT", "env prompt")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_PROVIDER", "openai-compatible")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_NAME", "gpt-4o-mini")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY", "env-secret-key")
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_ENABLED", True)
+    db = get_session_factory()()
+    try:
+        prompt = service.get_prompt_setting(db)
+        model = service.get_model_setting(db)
+
+        assert prompt["prompt_text"] == "env prompt"
+        assert model["provider"] == "openai-compatible"
+        assert model["model_name"] == "gpt-4o-mini"
+        assert model["api_base_url"] == "https://api.openai.com/v1"
+        assert model["enabled"] is True
+        assert model["has_api_key"] is True
+    finally:
+        db.close()
+
+
 def test_create_extraction_task_builds_graph(monkeypatch, tmp_path):
     service = _bootstrap(monkeypatch, tmp_path)
     db = get_session_factory()()

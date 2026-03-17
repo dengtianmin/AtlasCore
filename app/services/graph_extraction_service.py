@@ -279,15 +279,19 @@ class GraphExtractionService:
     def get_model_setting(self, db: Session) -> dict:
         setting = self.model_repo.get_active(db)
         if setting is None:
+            setting = self._ensure_model_setting_from_env(db, operator="system")
+            if setting is not None:
+                db.commit()
+                return self._serialize_model_setting(setting)
             return {
-                "provider": "",
-                "model_name": "",
-                "api_base_url": None,
-                "enabled": False,
+                "provider": settings.GRAPH_EXTRACTION_MODEL_PROVIDER,
+                "model_name": settings.GRAPH_EXTRACTION_MODEL_NAME or "",
+                "api_base_url": settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL,
+                "enabled": settings.GRAPH_EXTRACTION_MODEL_ENABLED,
                 "is_active": False,
                 "updated_at": None,
                 "updated_by": None,
-                "has_api_key": False,
+                "has_api_key": bool(settings.resolved_graph_extraction_model_api_key),
             }
         return self._serialize_model_setting(setting)
 
@@ -605,14 +609,41 @@ class GraphExtractionService:
         setting = self.prompt_repo.get_active(db)
         if setting is not None:
             return setting
-        setting = GraphPromptSetting(prompt_text=DEFAULT_GRAPH_EXTRACTION_PROMPT, updated_by=operator, is_active=True)
+        setting = GraphPromptSetting(
+            prompt_text=settings.GRAPH_EXTRACTION_PROMPT or DEFAULT_GRAPH_EXTRACTION_PROMPT,
+            updated_by=operator,
+            is_active=True,
+        )
         self.prompt_repo.replace_active(db, setting=setting)
         return setting
 
     def _require_active_model(self, db: Session) -> GraphModelSetting:
         setting = self.model_repo.get_active(db)
+        if setting is None:
+            setting = self._ensure_model_setting_from_env(db, operator="system")
+            if setting is not None:
+                db.commit()
         if setting is None or not setting.enabled:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Graph extraction model is not configured")
+        return setting
+
+    def _ensure_model_setting_from_env(self, db: Session, *, operator: str) -> GraphModelSetting | None:
+        model_name = (settings.GRAPH_EXTRACTION_MODEL_NAME or "").strip()
+        api_base_url = (settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL or "").strip()
+        api_key = settings.resolved_graph_extraction_model_api_key
+        if not model_name and not api_base_url and not api_key and not settings.GRAPH_EXTRACTION_MODEL_ENABLED:
+            return None
+
+        setting = GraphModelSetting(
+            provider=settings.GRAPH_EXTRACTION_MODEL_PROVIDER.strip(),
+            model_name=model_name or "unset-model",
+            api_base_url=api_base_url or None,
+            api_key_ciphertext=self.secret_box.encrypt(api_key.strip()) if api_key else None,
+            enabled=settings.GRAPH_EXTRACTION_MODEL_ENABLED,
+            is_active=True,
+            updated_by=operator,
+        )
+        self.model_repo.replace_active(db, setting=setting)
         return setting
 
     def _get_document_or_404(self, db: Session, *, document_id: UUID) -> Document:
