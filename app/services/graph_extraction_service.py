@@ -31,6 +31,7 @@ from app.repositories.graph_settings_repo import GraphModelSettingRepository, Gr
 from app.services.graph_service import GraphService
 
 logger = get_logger(__name__)
+GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK = 6000
 
 DEFAULT_GRAPH_EXTRACTION_PROMPT = """\
 你是知识图谱抽取器。请从输入 Markdown 中抽取节点和边，并严格返回 JSON。
@@ -491,18 +492,35 @@ class GraphExtractionService:
         prompt_text: str,
         model_setting: GraphModelSetting,
     ) -> ExtractedGraphPayload:
-        response_text = await self._call_model(
-            prompt_text=prompt_text,
-            markdown=markdown,
-            model_setting=model_setting,
-        )
-        payload = self._parse_extraction_payload(response_text)
+        chunk_payloads: list[ExtractedGraphPayload] = []
+        chunks = self._split_markdown_into_chunks(markdown)
+        for chunk_index, chunk in enumerate(chunks, start=1):
+            response_text = await self._call_model(
+                prompt_text=prompt_text,
+                markdown=chunk,
+                model_setting=model_setting,
+            )
+            payload = self._parse_extraction_payload(response_text)
+            chunk_payloads.append(payload)
+            log_event(
+                logger,
+                logging.INFO,
+                "graph_document_chunk_extracted",
+                "success",
+                document_id=str(document.id),
+                chunk_index=chunk_index,
+                chunk_count=len(chunks),
+                node_count=len(payload.nodes),
+                edge_count=len(payload.edges),
+            )
+        payload = self._merge_extracted_payloads(chunk_payloads)
         log_event(
             logger,
             logging.INFO,
             "graph_document_extracted",
             "success",
             document_id=str(document.id),
+            chunk_count=len(chunks),
             node_count=len(payload.nodes),
             edge_count=len(payload.edges),
         )
@@ -540,6 +558,95 @@ class GraphExtractionService:
             cleaned = fenced_match.group(1)
         payload = json.loads(cleaned)
         return ExtractedGraphPayload(nodes=list(payload.get("nodes") or []), edges=list(payload.get("edges") or []))
+
+    def _merge_extracted_payloads(self, payloads: list[ExtractedGraphPayload]) -> ExtractedGraphPayload:
+        merged_nodes: list[dict] = []
+        merged_edges: list[dict] = []
+        for payload in payloads:
+            merged_nodes.extend(payload.nodes)
+            merged_edges.extend(payload.edges)
+        return ExtractedGraphPayload(nodes=merged_nodes, edges=merged_edges)
+
+    def _split_markdown_into_chunks(self, markdown: str, *, max_chars: int = GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK) -> list[str]:
+        text = markdown.strip()
+        if not text:
+            return [""]
+        if len(text) <= max_chars:
+            return [text]
+
+        sections = [section.strip() for section in re.split(r"(?m)(?=^#{1,6}\s+)", text) if section.strip()]
+        if not sections:
+            sections = [text]
+
+        chunks: list[str] = []
+        current_parts: list[str] = []
+        current_length = 0
+
+        for section in sections:
+            for piece in self._split_section_to_pieces(section, max_chars=max_chars):
+                piece_length = len(piece)
+                separator_length = 2 if current_parts else 0
+                if current_parts and current_length + separator_length + piece_length > max_chars:
+                    chunks.append("\n\n".join(current_parts))
+                    current_parts = [piece]
+                    current_length = piece_length
+                    continue
+                current_parts.append(piece)
+                current_length += separator_length + piece_length
+
+        if current_parts:
+            chunks.append("\n\n".join(current_parts))
+        return chunks or [text]
+
+    def _split_section_to_pieces(self, section: str, *, max_chars: int) -> list[str]:
+        if len(section) <= max_chars:
+            return [section]
+
+        paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", section) if paragraph.strip()]
+        if len(paragraphs) <= 1:
+            return self._hard_split_text(section, max_chars=max_chars)
+
+        pieces: list[str] = []
+        current_parts: list[str] = []
+        current_length = 0
+
+        for paragraph in paragraphs:
+            if len(paragraph) > max_chars:
+                if current_parts:
+                    pieces.append("\n\n".join(current_parts))
+                    current_parts = []
+                    current_length = 0
+                pieces.extend(self._hard_split_text(paragraph, max_chars=max_chars))
+                continue
+
+            separator_length = 2 if current_parts else 0
+            if current_parts and current_length + separator_length + len(paragraph) > max_chars:
+                pieces.append("\n\n".join(current_parts))
+                current_parts = [paragraph]
+                current_length = len(paragraph)
+                continue
+
+            current_parts.append(paragraph)
+            current_length += separator_length + len(paragraph)
+
+        if current_parts:
+            pieces.append("\n\n".join(current_parts))
+        return pieces
+
+    def _hard_split_text(self, text: str, *, max_chars: int) -> list[str]:
+        pieces: list[str] = []
+        remaining = text.strip()
+        while len(remaining) > max_chars:
+            split_at = remaining.rfind("\n", 0, max_chars)
+            if split_at <= 0:
+                split_at = remaining.rfind(" ", 0, max_chars)
+            if split_at <= 0:
+                split_at = max_chars
+            pieces.append(remaining[:split_at].strip())
+            remaining = remaining[split_at:].strip()
+        if remaining:
+            pieces.append(remaining)
+        return pieces
 
     def _serialize_document(self, document: Document) -> dict:
         return {

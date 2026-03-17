@@ -10,7 +10,11 @@ from app.core.config import settings
 from app.db.session import get_session_factory, initialize_database, reset_db_state
 from app.graph.db import initialize_graph_database, reset_graph_db_state
 from app.repositories.document_repo import DocumentRepository
-from app.services.graph_extraction_service import DEFAULT_GRAPH_EXTRACTION_PROMPT, GraphExtractionService
+from app.services.graph_extraction_service import (
+    DEFAULT_GRAPH_EXTRACTION_PROMPT,
+    GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK,
+    GraphExtractionService,
+)
 
 
 def _bootstrap(monkeypatch, tmp_path) -> GraphExtractionService:
@@ -184,3 +188,55 @@ def test_create_extraction_task_builds_graph(monkeypatch, tmp_path):
         assert refreshed_second is not None and refreshed_second.status == "applied_to_graph"
     finally:
         db.close()
+
+
+def test_long_markdown_is_split_into_multiple_chunks(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    long_markdown = (
+        "# Section A\n\n" + ("Alice uses AtlasCore. " * 400) + "\n\n"
+        "# Section B\n\n" + ("Bob studies graphs. " * 400)
+    )
+
+    chunks = service._split_markdown_into_chunks(long_markdown, max_chars=GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK)
+
+    assert len(chunks) >= 2
+    assert all(len(chunk) <= GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK for chunk in chunks)
+
+
+def test_single_document_extraction_merges_chunk_results(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    long_markdown = (
+        "# Chunk One\n\n" + ("Alice uses AtlasCore. " * 400) + "\n\n"
+        "# Chunk Two\n\n" + ("Bob uses AtlasCore. " * 400)
+    )
+    calls: list[str] = []
+
+    async def fake_call_model(*, prompt_text, markdown, model_setting):
+        calls.append(markdown)
+        person_name = "Alice" if "Alice" in markdown else "Bob"
+        return f"""
+        {{
+          "nodes": [
+            {{"name": "{person_name}", "node_type": "person", "description": "{person_name} desc", "tags": ["team"]}},
+            {{"name": "AtlasCore", "node_type": "system", "description": "Platform", "tags": ["product"]}}
+          ],
+          "edges": [
+            {{"source": "{person_name}", "target": "AtlasCore", "relation_type": "USES", "relation_label": "uses", "source_type": "person", "target_type": "system"}}
+          ]
+        }}
+        """
+
+    monkeypatch.setattr(service, "_call_model", fake_call_model)
+
+    payload = asyncio.run(
+        service._extract_single_document(
+            markdown=long_markdown,
+            document=type("Doc", (), {"id": uuid4()})(),
+            prompt_text=DEFAULT_GRAPH_EXTRACTION_PROMPT,
+            model_setting=type("Model", (), {"model_name": "gpt-test"})(),
+        )
+    )
+
+    assert len(calls) >= 2
+    assert len(payload.nodes) == len(calls) * 2
+    assert len(payload.edges) == len(calls)
