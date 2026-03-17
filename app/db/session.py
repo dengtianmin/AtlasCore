@@ -64,6 +64,10 @@ def _ensure_sqlite_schema_alignment(engine: Engine) -> None:
             "ALTER TABLE documents ADD COLUMN dify_error_code VARCHAR(64)",
             "ALTER TABLE documents ADD COLUMN dify_error_message TEXT",
             "ALTER TABLE documents ADD COLUMN extraction_task_id VARCHAR(36)",
+            "ALTER TABLE documents ADD COLUMN graph_extraction_chunk_count INTEGER",
+            "ALTER TABLE documents ADD COLUMN graph_extraction_completed_chunks INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE documents ADD COLUMN graph_extraction_payloads_json TEXT",
+            "ALTER TABLE documents ADD COLUMN graph_extraction_last_error TEXT",
             "ALTER TABLE documents ADD COLUMN removed_from_graph_at DATETIME",
             "ALTER TABLE documents ADD COLUMN invalidated_at DATETIME",
             "ALTER TABLE documents ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1",
@@ -104,6 +108,14 @@ def _ensure_sqlite_schema_alignment(engine: Engine) -> None:
                 UPDATE documents
                 SET created_at = COALESCE(created_at, uploaded_at, CURRENT_TIMESTAMP)
                 WHERE created_at IS NULL
+                """
+            )
+        if "graph_extraction_completed_chunks" in document_columns:
+            connection.exec_driver_sql(
+                """
+                UPDATE documents
+                SET graph_extraction_completed_chunks = COALESCE(graph_extraction_completed_chunks, 0)
+                WHERE graph_extraction_completed_chunks IS NULL
                 """
             )
 

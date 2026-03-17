@@ -19,6 +19,10 @@ def test_business_sqlite_alignment_adds_graph_extraction_fields(monkeypatch, tmp
 
     assert "file_type" in columns
     assert "extraction_task_id" in columns
+    assert "graph_extraction_chunk_count" in columns
+    assert "graph_extraction_completed_chunks" in columns
+    assert "graph_extraction_payloads_json" in columns
+    assert "graph_extraction_last_error" in columns
     assert "removed_from_graph_at" in columns
     assert "invalidated_at" in columns
     assert "is_active" in columns

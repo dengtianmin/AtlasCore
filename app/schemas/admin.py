@@ -160,6 +160,9 @@ class GraphFileRecordResponse(BaseModel):
     invalidated_at: datetime | None = None
     is_active: bool
     extraction_task_id: UUID | None = None
+    graph_extraction_chunk_count: int | None = None
+    graph_extraction_completed_chunks: int | None = None
+    graph_extraction_last_error: str | None = None
 
 
 class GraphFileListResponse(BaseModel):
@@ -204,6 +207,9 @@ class ExtractionTaskResponse(BaseModel):
     invalidated_at: datetime | None = None
     is_active: bool | None = None
     extraction_task_id: UUID | None = None
+    graph_extraction_chunk_count: int | None = None
+    graph_extraction_completed_chunks: int | None = None
+    graph_extraction_last_error: str | None = None
 
 
 class ExtractionTaskListResponse(BaseModel):

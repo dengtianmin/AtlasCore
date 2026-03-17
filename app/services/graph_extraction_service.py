@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -32,6 +33,8 @@ from app.services.graph_service import GraphService
 
 logger = get_logger(__name__)
 GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK = 6000
+GRAPH_EXTRACTION_MODEL_MAX_RETRIES = 2
+GRAPH_EXTRACTION_MODEL_RETRY_BASE_DELAY_SECONDS = 1.0
 
 DEFAULT_GRAPH_EXTRACTION_PROMPT = """\
 你是土木工程知识图谱抽取器。请从输入的 Markdown 文本中抽取知识图谱，并严格返回 JSON。
@@ -75,6 +78,13 @@ JSON 格式:
 class ExtractedGraphPayload:
     nodes: list[dict]
     edges: list[dict]
+
+
+@dataclass(slots=True)
+class DocumentExtractionProgress:
+    chunk_count: int
+    completed_chunks: int
+    payloads: list[ExtractedGraphPayload]
 
 
 class _LocalSecretBox:
@@ -233,8 +243,7 @@ class GraphExtractionService:
         )
         self.task_repo.create(db, task=task)
         for document in documents:
-            document.status = "extracting"
-            document.extraction_task_id = task.id
+            self._prepare_document_for_extraction(db, document=document, task_id=task.id)
             self.document_repo.save(db, doc=document)
         db.commit()
 
@@ -246,6 +255,7 @@ class GraphExtractionService:
                 markdown = self._read_document_content(document)
                 extracted_payloads.append(
                     await self._extract_single_document(
+                        db=db,
                         markdown=markdown,
                         document=document,
                         prompt_text=prompt_setting.prompt_text,
@@ -262,6 +272,7 @@ class GraphExtractionService:
             for document in documents:
                 document.status = "applied_to_graph"
                 document.synced_to_graph = True
+                document.graph_extraction_last_error = None
                 document.last_sync_target = "graph"
                 document.last_sync_status = "applied_to_graph"
                 document.last_sync_at = datetime.now(UTC)
@@ -300,6 +311,10 @@ class GraphExtractionService:
                 if refreshed is None:
                     continue
                 refreshed.status = "extraction_failed"
+                refreshed.last_sync_target = "graph"
+                refreshed.last_sync_status = "failed"
+                refreshed.last_sync_at = datetime.now(UTC)
+                refreshed.graph_extraction_last_error = error_message
                 refreshed.note = error_message
                 self.document_repo.save(db, doc=refreshed)
             db.commit()
@@ -544,21 +559,46 @@ class GraphExtractionService:
     async def _extract_single_document(
         self,
         *,
+        db: Session,
         markdown: str,
         document: Document,
         prompt_text: str,
         model_setting: GraphModelSetting,
     ) -> ExtractedGraphPayload:
-        chunk_payloads: list[ExtractedGraphPayload] = []
         chunks = self._split_markdown_into_chunks(markdown)
-        for chunk_index, chunk in enumerate(chunks, start=1):
-            response_text = await self._call_model(
+        progress = self._load_document_progress(document=document, chunk_count=len(chunks))
+        chunk_payloads = list(progress.payloads)
+        start_index = progress.completed_chunks + 1
+
+        if progress.completed_chunks:
+            log_event(
+                logger,
+                logging.INFO,
+                "graph_document_resume_started",
+                "started",
+                document_id=str(document.id),
+                resume_from_chunk=start_index,
+                chunk_count=len(chunks),
+                completed_chunks=progress.completed_chunks,
+            )
+
+        for chunk_index, chunk in enumerate(chunks[start_index - 1 :], start=start_index):
+            payload = await self._extract_chunk_with_retry(
                 prompt_text=prompt_text,
                 markdown=chunk,
                 model_setting=model_setting,
+                document=document,
+                chunk_index=chunk_index,
+                chunk_count=len(chunks),
             )
-            payload = self._parse_extraction_payload(response_text)
             chunk_payloads.append(payload)
+            self._save_document_progress(
+                db,
+                document=document,
+                chunk_count=len(chunks),
+                chunk_payloads=chunk_payloads,
+                last_error=None,
+            )
             log_event(
                 logger,
                 logging.INFO,
@@ -571,6 +611,7 @@ class GraphExtractionService:
                 edge_count=len(payload.edges),
             )
         payload = self._merge_extracted_payloads(chunk_payloads)
+        document.graph_extraction_last_error = None
         log_event(
             logger,
             logging.INFO,
@@ -582,6 +623,45 @@ class GraphExtractionService:
             edge_count=len(payload.edges),
         )
         return payload
+
+    async def _extract_chunk_with_retry(
+        self,
+        *,
+        prompt_text: str,
+        markdown: str,
+        model_setting: GraphModelSetting,
+        document: Document,
+        chunk_index: int,
+        chunk_count: int,
+    ) -> ExtractedGraphPayload:
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                response_text = await self._call_model(
+                    prompt_text=prompt_text,
+                    markdown=markdown,
+                    model_setting=model_setting,
+                )
+                return self._parse_extraction_payload(response_text)
+            except HTTPException as exc:
+                if attempt > GRAPH_EXTRACTION_MODEL_MAX_RETRIES + 1 or not self._is_retryable_extraction_error(exc):
+                    raise
+                delay_seconds = self._retry_delay_seconds(attempt)
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "graph_document_chunk_retry_scheduled",
+                    "retrying",
+                    document_id=str(document.id),
+                    chunk_index=chunk_index,
+                    chunk_count=chunk_count,
+                    retry_attempt=attempt,
+                    retry_delay_seconds=delay_seconds,
+                    detail=self._format_exception_message(exc),
+                    status_code=exc.status_code,
+                )
+                await asyncio.sleep(delay_seconds)
 
     async def _call_model(self, *, prompt_text: str, markdown: str, model_setting: GraphModelSetting) -> str:
         resolved_model_setting = self._resolve_model_runtime_settings(model_setting)
@@ -657,6 +737,81 @@ class GraphExtractionService:
             merged_nodes.extend(payload.nodes)
             merged_edges.extend(payload.edges)
         return ExtractedGraphPayload(nodes=merged_nodes, edges=merged_edges)
+
+    def _load_document_progress(self, *, document: Document, chunk_count: int) -> DocumentExtractionProgress:
+        if document.graph_extraction_chunk_count != chunk_count:
+            self._reset_document_progress(document=document, chunk_count=chunk_count)
+        payloads: list[ExtractedGraphPayload] = []
+        if document.graph_extraction_payloads_json:
+            try:
+                raw_items = json.loads(document.graph_extraction_payloads_json)
+            except ValueError:
+                self._reset_document_progress(document=document, chunk_count=chunk_count)
+                raw_items = []
+            payloads = [
+                ExtractedGraphPayload(nodes=list(item.get("nodes") or []), edges=list(item.get("edges") or []))
+                for item in raw_items
+            ]
+        completed_chunks = min(document.graph_extraction_completed_chunks or 0, len(payloads), chunk_count)
+        if len(payloads) != completed_chunks:
+            payloads = payloads[:completed_chunks]
+        return DocumentExtractionProgress(
+            chunk_count=chunk_count,
+            completed_chunks=completed_chunks,
+            payloads=payloads,
+        )
+
+    def _save_document_progress(
+        self,
+        db: Session,
+        *,
+        document: Document,
+        chunk_count: int,
+        chunk_payloads: list[ExtractedGraphPayload],
+        last_error: str | None,
+    ) -> None:
+        document.graph_extraction_chunk_count = chunk_count
+        document.graph_extraction_completed_chunks = len(chunk_payloads)
+        document.graph_extraction_payloads_json = json.dumps(
+            [{"nodes": payload.nodes, "edges": payload.edges} for payload in chunk_payloads],
+            ensure_ascii=True,
+        )
+        document.graph_extraction_last_error = last_error
+        self.document_repo.save(db, doc=document)
+        db.commit()
+
+    def _reset_document_progress(self, *, document: Document, chunk_count: int | None = None) -> None:
+        document.graph_extraction_chunk_count = chunk_count
+        document.graph_extraction_completed_chunks = 0
+        document.graph_extraction_payloads_json = None
+        document.graph_extraction_last_error = None
+
+    def _prepare_document_for_extraction(self, db: Session, *, document: Document, task_id: UUID) -> None:
+        previous_status = document.status
+        document.extraction_task_id = task_id
+        document.status = "extracting"
+        document.synced_to_graph = False
+        document.last_sync_target = "graph"
+        document.last_sync_status = "extracting"
+        document.last_sync_at = datetime.now(UTC)
+        if previous_status not in {"extracting", "extraction_failed"}:
+            self._reset_document_progress(document=document)
+        if previous_status == "applied_to_graph":
+            self._reset_document_progress(document=document)
+        document.note = (
+            "Resuming graph extraction from saved chunk progress"
+            if (document.graph_extraction_completed_chunks or 0) > 0
+            else "Graph extraction in progress"
+        )
+        self.document_repo.save(db, doc=document)
+
+    def _is_retryable_extraction_error(self, exc: HTTPException) -> bool:
+        if exc.status_code in {status.HTTP_502_BAD_GATEWAY, status.HTTP_503_SERVICE_UNAVAILABLE, status.HTTP_504_GATEWAY_TIMEOUT}:
+            return True
+        return False
+
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        return GRAPH_EXTRACTION_MODEL_RETRY_BASE_DELAY_SECONDS * attempt
 
     def _split_markdown_into_chunks(self, markdown: str, *, max_chars: int = GRAPH_EXTRACTION_MAX_CHARS_PER_CHUNK) -> list[str]:
         text = markdown.strip()
@@ -765,6 +920,9 @@ class GraphExtractionService:
             "invalidated_at": document.invalidated_at,
             "is_active": document.is_active,
             "extraction_task_id": document.extraction_task_id,
+            "graph_extraction_chunk_count": document.graph_extraction_chunk_count,
+            "graph_extraction_completed_chunks": document.graph_extraction_completed_chunks,
+            "graph_extraction_last_error": document.graph_extraction_last_error,
         }
 
     def _serialize_task(self, task: GraphExtractionTask) -> dict:

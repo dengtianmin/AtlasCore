@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.db.session import get_session_factory, initialize_database, reset_db_state
@@ -211,6 +211,7 @@ def test_long_markdown_is_split_into_multiple_chunks(monkeypatch, tmp_path):
 
 def test_single_document_extraction_merges_chunk_results(monkeypatch, tmp_path):
     service = _bootstrap(monkeypatch, tmp_path)
+    db = get_session_factory()()
     long_markdown = (
         "# Chunk One\n\n" + ("Alice uses AtlasCore. " * 400) + "\n\n"
         "# Chunk Two\n\n" + ("Bob uses AtlasCore. " * 400)
@@ -234,18 +235,173 @@ def test_single_document_extraction_merges_chunk_results(monkeypatch, tmp_path):
 
     monkeypatch.setattr(service, "_call_model", fake_call_model)
 
+    try:
+        now = datetime.now(UTC)
+        path = Path(settings.DOCUMENT_LOCAL_STORAGE_DIR) / "single-doc.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(long_markdown, encoding="utf-8")
+        document = DocumentRepository().create(
+            db,
+            filename="single-doc.md",
+            file_type="md",
+            source_type="upload",
+            status="pending_extraction",
+            uploaded_at=now,
+            created_by=None,
+            local_path=str(path),
+            source_uri=str(path),
+            mime_type="text/markdown",
+            content_type="text/markdown",
+            file_size=len(long_markdown.encode("utf-8")),
+            file_extension="md",
+            created_at=now,
+        )
+        db.commit()
+
+        payload = asyncio.run(
+            service._extract_single_document(
+                db=db,
+                markdown=long_markdown,
+                document=document,
+                prompt_text=DEFAULT_GRAPH_EXTRACTION_PROMPT,
+                model_setting=type("Model", (), {"model_name": "gpt-test"})(),
+            )
+        )
+
+        assert len(calls) >= 2
+        assert len(payload.nodes) == len(calls) * 2
+        assert len(payload.edges) == len(calls)
+
+        refreshed = DocumentRepository().get_by_id(db, document.id)
+        assert refreshed is not None
+        assert refreshed.graph_extraction_chunk_count == len(calls)
+        assert refreshed.graph_extraction_completed_chunks == len(calls)
+        assert refreshed.graph_extraction_last_error is None
+    finally:
+        db.close()
+
+
+def test_chunk_retries_on_retryable_http_errors(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    attempts = {"count": 0}
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float):
+        sleep_calls.append(delay)
+
+    async def flaky_call_model(*, prompt_text, markdown, model_setting):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise HTTPException(status_code=502, detail="temporary upstream failure")
+        return '{"nodes":[{"name":"Alice","node_type":"person","description":"desc","tags":["team"]}],"edges":[]}'
+
+    monkeypatch.setattr("app.services.graph_extraction_service.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr(service, "_call_model", flaky_call_model)
+
     payload = asyncio.run(
-        service._extract_single_document(
-            markdown=long_markdown,
-            document=type("Doc", (), {"id": uuid4()})(),
+        service._extract_chunk_with_retry(
             prompt_text=DEFAULT_GRAPH_EXTRACTION_PROMPT,
+            markdown="# Chunk",
             model_setting=type("Model", (), {"model_name": "gpt-test"})(),
+            document=type("Doc", (), {"id": uuid4()})(),
+            chunk_index=1,
+            chunk_count=1,
         )
     )
 
-    assert len(calls) >= 2
-    assert len(payload.nodes) == len(calls) * 2
-    assert len(payload.edges) == len(calls)
+    assert attempts["count"] == 3
+    assert sleep_calls == [1.0, 2.0]
+    assert payload.nodes[0]["name"] == "Alice"
+
+
+def test_create_extraction_task_resumes_from_failed_chunk(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    db = get_session_factory()()
+    repo = DocumentRepository()
+    try:
+        service.update_model_setting(
+            db,
+            provider="openai-compatible",
+            model_name="gpt-test",
+            api_base_url="https://llm.example.com/v1",
+            api_key="secret-key",
+            enabled=True,
+            thinking_enabled=False,
+            operator="admin",
+        )
+
+        markdown = (
+            "# Chunk One\n\n" + ("Alice uses AtlasCore. " * 400) + "\n\n"
+            "# Chunk Two\n\n" + ("Bob uses AtlasCore. " * 400)
+        )
+        now = datetime.now(UTC)
+        path = Path(settings.DOCUMENT_LOCAL_STORAGE_DIR) / "resume-doc.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(markdown, encoding="utf-8")
+        document = repo.create(
+            db,
+            filename="resume-doc.md",
+            file_type="md",
+            source_type="upload",
+            status="pending_extraction",
+            uploaded_at=now,
+            created_by=None,
+            local_path=str(path),
+            source_uri=str(path),
+            mime_type="text/markdown",
+            content_type="text/markdown",
+            file_size=len(markdown.encode("utf-8")),
+            file_extension="md",
+            created_at=now,
+        )
+        db.commit()
+
+        chunks = service._split_markdown_into_chunks(markdown)
+        call_sequence: list[str] = []
+
+        async def first_run_call_model(*, prompt_text, markdown, model_setting):
+            call_sequence.append(markdown)
+            if markdown == chunks[1]:
+                raise HTTPException(status_code=502, detail="upstream failed on second chunk")
+            return '{"nodes":[{"name":"Alice","node_type":"person","description":"desc","tags":["team"]}],"edges":[]}'
+
+        monkeypatch.setattr(service, "_call_model", first_run_call_model)
+
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(service.create_extraction_task(db, document_ids=[UUID(str(document.id))], operator="admin"))
+
+        assert exc_info.value.status_code == 502
+        failed = repo.get_by_id(db, document.id)
+        assert failed is not None
+        assert failed.status == "extraction_failed"
+        assert failed.graph_extraction_chunk_count == len(chunks)
+        assert failed.graph_extraction_completed_chunks == 1
+        assert "upstream failed on second chunk" in (failed.graph_extraction_last_error or "")
+
+        resumed_markdowns: list[str] = []
+
+        async def second_run_call_model(*, prompt_text, markdown, model_setting):
+            resumed_markdowns.append(markdown)
+            person_name = "Alice" if "Alice" in markdown else "Bob"
+            return (
+                '{"nodes":[{"name":"%s","node_type":"person","description":"desc","tags":["team"]}],'
+                '"edges":[]}'
+            ) % person_name
+
+        monkeypatch.setattr(service, "_call_model", second_run_call_model)
+
+        payload = asyncio.run(service.create_extraction_task(db, document_ids=[UUID(str(document.id))], operator="admin"))
+
+        assert payload["status"] == "succeeded"
+        assert resumed_markdowns == chunks[1:]
+
+        resumed = repo.get_by_id(db, document.id)
+        assert resumed is not None
+        assert resumed.status == "applied_to_graph"
+        assert resumed.graph_extraction_completed_chunks == len(chunks)
+        assert resumed.graph_extraction_last_error is None
+    finally:
+        db.close()
 
 
 def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
