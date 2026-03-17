@@ -3,11 +3,12 @@ from io import BytesIO
 from types import SimpleNamespace
 from uuid import uuid4
 
+import asyncio
 import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.admin.document_status import DocumentStatus
-from app.integrations.dify.schemas import DifyJobResponse
+from app.integrations.dify.schemas import DifyUploadedFile
 from app.services.admin_service import AdminDocumentService
 
 
@@ -124,22 +125,23 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
     updated = _doc(DocumentStatus.INDEXED.value)
 
     monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
-    monkeypatch.setattr(service.document_repo, "update_status", lambda *args, **kwargs: updated)
-    monkeypatch.setattr(
-        service.dify_client,
-        "enqueue_document_index",
-        lambda *_args, **_kwargs: DifyJobResponse(
-            job_id="dify-job-1",
-            status="queued",
-            message="queued from test",
-        ),
-    )
+    async def fake_upload_file(*_args, **_kwargs):
+        return DifyUploadedFile(
+            file_id="dify-file-1",
+            name="doc.txt",
+            size=3,
+            extension="txt",
+            mime_type="text/plain",
+            created_at=1,
+        )
+
+    monkeypatch.setattr(service.dify_client, "upload_file", fake_upload_file)
 
     monkeypatch.setattr(service.document_repo, "mark_synced", lambda *args, **kwargs: updated)
 
-    payload = service.trigger_dify_index(db, doc_id=doc.id)
+    payload = asyncio.run(service.trigger_dify_index(db, doc_id=doc.id))
 
     assert payload["target_system"] == "dify"
     assert payload["status"] == DocumentStatus.INDEXED.value
-    assert payload["message"] == "queued from test"
+    assert payload["message"] == "Dify file uploaded: dify-file-1"
     assert db.commits == 1

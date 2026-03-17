@@ -1,138 +1,249 @@
-import io
+import asyncio
 import json
+import logging
 
-from urllib import error
+import httpx
+import pytest
 
 from app.core.config import settings
 from app.integrations.dify.client import DifyClient
-from app.integrations.dify.exceptions import DifyConfigurationError, DifyRequestError
-from app.integrations.dify.schemas import DifyChatRequest, DifyDocumentIndexRequest
+from app.integrations.dify.exceptions import (
+    DifyAuthError,
+    DifyBadRequestError,
+    DifyFileTooLargeError,
+    DifyQuotaExceededError,
+    DifyServiceUnavailableError,
+    DifyTimeoutError,
+    DifyUnsupportedFileTypeError,
+)
 
 
-class _MockHttpResponse:
-    def __init__(self, payload: dict, status: int = 200) -> None:
-        self.payload = json.dumps(payload).encode("utf-8")
-        self.status = status
-
-    def read(self) -> bytes:
-        return self.payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
+def _client(handler) -> DifyClient:
+    transport = httpx.MockTransport(handler)
+    return DifyClient(transport=transport)
 
 
-def test_dify_client_returns_placeholder_when_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
-    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
-
-    client = DifyClient()
-    res = client.enqueue_document_index(
-        DifyDocumentIndexRequest(document_id="doc-1", title="Doc 1", source_uri="/tmp/doc")
-    )
-
-    assert client.is_enabled() is False
-    assert res.status == "queued"
-    assert res.job_id == "placeholder-doc-1"
-
-
-def test_dify_client_supports_blocking_chat(monkeypatch):
+def test_run_workflow_success(monkeypatch):
     monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
     monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
 
-    def _mock_urlopen(req, timeout):
-        assert req.full_url == "https://dify.example.com/v1/chat-messages"
-        assert timeout == settings.DIFY_TIMEOUT_SECONDS
-        payload = json.loads(req.data.decode("utf-8"))
-        assert payload["query"] == "hello"
-        return _MockHttpResponse(
-            {
-                "answer": "world",
-                "conversation_id": "session-1",
-                "message_id": "msg-1",
-                "metadata": {
-                    "retriever_resources": [
-                        {
-                            "document_name": "doc-1",
-                            "content": "context line",
-                            "data_source_type": "knowledge",
-                        }
-                    ],
-                    "usage": {"total_tokens": 12},
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://dify.example.com/v1/workflows/run")
+        assert request.headers["Authorization"] == "Bearer api-key"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["inputs"] == {"question": "hello"}
+        assert payload["user"] == "guest-1"
+        return httpx.Response(
+            200,
+            json={
+                "workflow_run_id": "run-1",
+                "task_id": "task-1",
+                "data": {
+                    "status": "succeeded",
+                    "outputs": {"text": "world"},
+                    "error": None,
+                    "elapsed_time": 0.2,
+                    "total_tokens": 12,
+                    "total_steps": 2,
                 },
-            }
+            },
         )
 
-    monkeypatch.setattr("app.integrations.dify.client.request.urlopen", _mock_urlopen)
-    client = DifyClient()
-    res = client.chat(DifyChatRequest(query="hello", session_id="session-1"))
+    result = asyncio.run(_client(handler).run_workflow(inputs={"question": "hello"}, user="guest-1"))
 
-    assert client.is_enabled() is True
-    assert res.answer == "world"
-    assert res.retrieved_context == "context line"
-    assert res.sources[0].title == "doc-1"
-    assert res.provider_message_id == "msg-1"
-    assert res.metadata["total_tokens"] == 12
+    assert result.workflow_run_id == "run-1"
+    assert result.task_id == "task-1"
+    assert result.outputs["text"] == "world"
+    assert result.total_tokens == 12
 
 
-def test_dify_client_raises_when_chat_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "DIFY_BASE_URL", None)
-    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
+def test_upload_file_success(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    file_path = tmp_path / "doc.txt"
+    file_path.write_text("atlas", encoding="utf-8")
 
-    client = DifyClient()
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://dify.example.com/v1/files/upload")
+        assert b'name="user"' in request.content
+        assert b'name="file"; filename="doc.txt"' in request.content
+        return httpx.Response(
+            200,
+            json={
+                "id": "file-1",
+                "name": "doc.txt",
+                "size": 5,
+                "extension": "txt",
+                "mime_type": "text/plain",
+                "created_at": 123,
+            },
+        )
 
-    try:
-        client.chat(DifyChatRequest(query="hello", session_id="session-1"))
-    except DifyConfigurationError:
-        pass
-    else:
-        raise AssertionError("Expected DifyConfigurationError when chat is not configured")
+    uploaded = asyncio.run(_client(handler).upload_file(str(file_path), user="guest-2", mime_type="text/plain"))
+
+    assert uploaded.file_id == "file-1"
+    assert uploaded.name == "doc.txt"
+    assert uploaded.mime_type == "text/plain"
 
 
-def test_dify_client_raises_on_http_error(monkeypatch):
+def test_get_parameters_success(monkeypatch):
     monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
     monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
 
-    def _mock_urlopen(req, timeout):
-        raise error.HTTPError(
-            url=req.full_url,
-            code=500,
-            msg="server error",
-            hdrs=None,
-            fp=io.BytesIO(b'{"message":"failed"}'),
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"user_input_form": [{"variable": "question"}]})
+
+    payload = asyncio.run(_client(handler).get_parameters())
+
+    assert payload["user_input_form"][0]["variable"] == "question"
+
+
+def test_validate_configuration_success(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "question")
+    monkeypatch.setattr(settings, "DIFY_FILE_INPUT_VARIABLE", "attachments")
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "user_input_form": [
+                    {"variable": "question"},
+                    {"variable": "attachments"},
+                ],
+                "features": {"file_upload": {"enabled": True}},
+            },
         )
 
-    monkeypatch.setattr("app.integrations.dify.client.request.urlopen", _mock_urlopen)
-    client = DifyClient()
+    result = asyncio.run(_client(handler).validate_configuration())
 
-    try:
-        client.chat(DifyChatRequest(query="hello", session_id="session-1"))
-    except DifyRequestError as exc:
-        assert "status 500" in str(exc)
-    else:
-        raise AssertionError("Expected DifyRequestError for HTTP failures")
+    assert result.ok is True
+    assert result.text_input_variable_exists is True
+    assert result.file_input_variable_exists is True
+    assert result.file_upload_enabled is True
 
 
-def test_dify_client_supports_key_vault_secret_name(monkeypatch):
-    monkeypatch.setattr(settings, "APP_ENV", "test")
-    monkeypatch.setattr(settings, "KEY_VAULT_ENABLED", True)
-    monkeypatch.setattr(settings, "KEY_VAULT_URL", "https://atlascore-kv.vault.azure.net")
+def test_validate_configuration_reports_missing_variable(monkeypatch):
     monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
-    monkeypatch.setattr(settings, "DIFY_API_KEY", None)
-    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", "dify-api-key")
-    monkeypatch.setattr(
-        "app.core.secrets.SecretResolver._get_secret_client",
-        lambda self, vault_url: type(
-            "MockSecretClient",
-            (),
-            {"get_secret": lambda self, name: type("SecretBundle", (), {"value": "api-key"})()},
-        )(),
-    )
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "question")
+    monkeypatch.setattr(settings, "DIFY_FILE_INPUT_VARIABLE", "attachments")
 
-    client = DifyClient()
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "user_input_form": [{"variable": "question"}],
+                "features": {"file_upload": {"enabled": False}},
+            },
+        )
 
-    assert client.is_enabled() is True
+    result = asyncio.run(_client(handler).validate_configuration())
+
+    assert result.ok is False
+    assert result.file_input_variable_exists is False
+    assert result.file_upload_enabled is False
+    assert len(result.warnings) == 2
+
+
+def test_http_error_mapping(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def auth_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"code": "unauthorized", "message": "bad token"})
+
+    def quota_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"code": "rate_limit", "message": "too many"})
+
+    with pytest.raises(DifyAuthError):
+        asyncio.run(_client(auth_handler).get_parameters())
+    with pytest.raises(DifyQuotaExceededError):
+        asyncio.run(_client(quota_handler).get_parameters())
+
+
+def test_dify_business_error_mapping(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def large_file_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "file_too_large", "message": "too large"})
+
+    def unsupported_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "unsupported_file_type", "message": "bad type"})
+
+    with pytest.raises(DifyFileTooLargeError):
+        asyncio.run(_client(large_file_handler).get_parameters())
+    with pytest.raises(DifyUnsupportedFileTypeError):
+        asyncio.run(_client(unsupported_handler).get_parameters())
+
+
+def test_timeout_handling(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def handler(_: httpx.Request):
+        raise httpx.ReadTimeout("timed out")
+
+    with pytest.raises(DifyTimeoutError):
+        asyncio.run(_client(handler).get_parameters())
+
+
+def test_retry_only_for_transient_errors(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    calls = {"count": 0}
+
+    def transient_handler(_: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(503, json={"code": "unavailable", "message": "retry"})
+        return httpx.Response(200, json={"user_input_form": []})
+
+    payload = asyncio.run(_client(transient_handler).get_parameters())
+
+    assert calls["count"] == 2
+    assert payload == {"user_input_form": []}
+
+
+def test_non_retryable_bad_request(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    calls = {"count": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(422, json={"code": "invalid_param", "message": "bad param"})
+
+    with pytest.raises(DifyBadRequestError):
+        asyncio.run(_client(handler).get_parameters())
+
+    assert calls["count"] == 1
+
+
+def test_logging_does_not_leak_sensitive_information(monkeypatch, caplog):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "secret-api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"code": "upstream", "message": "provider failed"})
+
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(DifyServiceUnavailableError):
+            asyncio.run(_client(handler).get_parameters())
+
+    joined = "\n".join(record.getMessage() for record in caplog.records)
+    assert "secret-api-key" not in joined
+    assert "Bearer secret-api-key" not in joined

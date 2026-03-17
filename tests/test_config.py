@@ -75,6 +75,12 @@ def test_settings_defaults(monkeypatch):
     assert settings.NEO4J_PASSWORD is None
     assert settings.DIFY_BASE_URL is None
     assert settings.DIFY_API_KEY is None
+    assert settings.DIFY_WORKFLOW_ID is None
+    assert settings.DIFY_RESPONSE_MODE == "blocking"
+    assert settings.DIFY_TEXT_INPUT_VARIABLE is None
+    assert settings.DIFY_FILE_INPUT_VARIABLE is None
+    assert settings.DIFY_ENABLE_TRACE is False
+    assert settings.DIFY_USER_PREFIX == "guest"
     assert settings.PAGE_DEFAULTS == {}
     assert settings.FEATURE_FLAGS == {}
     assert settings.EXPORT_RULES == {}
@@ -115,6 +121,12 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setenv("DIFY_API_KEY", "dify-api-key")
     monkeypatch.setenv("DIFY_API_KEY_SECRET_NAME", "dify-api-key")
+    monkeypatch.setenv("DIFY_WORKFLOW_ID", "workflow-1")
+    monkeypatch.setenv("DIFY_RESPONSE_MODE", "blocking")
+    monkeypatch.setenv("DIFY_TEXT_INPUT_VARIABLE", "question")
+    monkeypatch.setenv("DIFY_FILE_INPUT_VARIABLE", "attachments")
+    monkeypatch.setenv("DIFY_ENABLE_TRACE", "true")
+    monkeypatch.setenv("DIFY_USER_PREFIX", "atlas")
 
     settings = Settings()
 
@@ -151,6 +163,12 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.DIFY_BASE_URL == "https://dify.example.com"
     assert settings.DIFY_API_KEY == "dify-api-key"
     assert settings.DIFY_API_KEY_SECRET_NAME == "dify-api-key"
+    assert settings.DIFY_WORKFLOW_ID == "workflow-1"
+    assert settings.DIFY_RESPONSE_MODE == "blocking"
+    assert settings.DIFY_TEXT_INPUT_VARIABLE == "question"
+    assert settings.DIFY_FILE_INPUT_VARIABLE == "attachments"
+    assert settings.DIFY_ENABLE_TRACE is True
+    assert settings.DIFY_USER_PREFIX == "atlas"
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/admin/system", tags=["admin-system"])
 
 
 @router.get("/status")
-def get_system_status(
+async def get_system_status(
     _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
 ) -> dict:
-    return runtime_status_service.get_admin_status()
+    return await runtime_status_service.get_admin_status()

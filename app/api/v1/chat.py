@@ -23,11 +23,11 @@ def get_session() -> Generator[Session, None, None]:
 
 
 @router.post("/messages", response_model=ChatMessageResponse)
-def send_message(
+async def send_message(
     payload: ChatMessageRequest,
     db: Annotated[Session, Depends(get_session)],
 ) -> ChatMessageResponse:
-    return ChatMessageResponse(**service.ask(db, question=payload.question, session_id=payload.session_id))
+    return ChatMessageResponse(**await service.ask(db, question=payload.question, session_id=payload.session_id))
 
 
 @router.post("/messages/{message_id}/feedback", response_model=ChatFeedbackResponse)

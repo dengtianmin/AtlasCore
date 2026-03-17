@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     DIFY_API_KEY: str | None = None
     DIFY_API_KEY_SECRET_NAME: str | None = None
     DIFY_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
+    DIFY_WORKFLOW_ID: str | None = None
+    DIFY_RESPONSE_MODE: Literal["blocking", "streaming"] = "blocking"
+    DIFY_TEXT_INPUT_VARIABLE: str | None = None
+    DIFY_FILE_INPUT_VARIABLE: str | None = None
+    DIFY_ENABLE_TRACE: bool = False
+    DIFY_USER_PREFIX: str = "guest"
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
 
     API_V1_PREFIX: str = ""
@@ -202,6 +208,22 @@ class Settings(BaseSettings):
             env_var="DIFY_API_KEY",
             secret_name_var="DIFY_API_KEY_SECRET_NAME",
         ).value
+
+    @property
+    def dify_settings(self):
+        from app.integrations.dify.schemas import DifySettings
+
+        return DifySettings(
+            base_url=self.DIFY_BASE_URL,
+            api_key=self.resolved_dify_api_key,
+            timeout_seconds=self.DIFY_TIMEOUT_SECONDS,
+            workflow_id=self.DIFY_WORKFLOW_ID,
+            response_mode=self.DIFY_RESPONSE_MODE,
+            text_input_variable=self.DIFY_TEXT_INPUT_VARIABLE,
+            file_input_variable=self.DIFY_FILE_INPUT_VARIABLE,
+            enable_trace=self.DIFY_ENABLE_TRACE,
+            user_prefix=self.DIFY_USER_PREFIX,
+        )
 
     def secret_status_summary(self) -> dict[str, dict[str, str | bool]]:
         tracked = {
@@ -384,6 +406,12 @@ class Settings(BaseSettings):
             "GRAPH_DB_VERSION": graph_payload.get("db_version"),
             "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
             "DIFY_TIMEOUT_SECONDS": integrations_payload.get("dify", {}).get("timeout_seconds"),
+            "DIFY_WORKFLOW_ID": integrations_payload.get("dify", {}).get("workflow_id"),
+            "DIFY_RESPONSE_MODE": integrations_payload.get("dify", {}).get("response_mode"),
+            "DIFY_TEXT_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("text_input_variable"),
+            "DIFY_FILE_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("file_input_variable"),
+            "DIFY_ENABLE_TRACE": integrations_payload.get("dify", {}).get("enable_trace"),
+            "DIFY_USER_PREFIX": integrations_payload.get("dify", {}).get("user_prefix"),
         }
         normalized_payload = {key: value for key, value in normalized_payload.items() if value is not None}
         return _deep_merge(normalized_payload, values)

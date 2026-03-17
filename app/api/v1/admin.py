@@ -117,13 +117,13 @@ def trigger_graph_sync(
 
 
 @router.post("/documents/{document_id}/dify-sync", response_model=SyncTriggerResponse)
-def trigger_dify_sync(
+async def trigger_dify_sync(
     document_id: UUID,
     _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
 ) -> SyncTriggerResponse:
     db = _db_dependency()
     try:
-        payload = service.trigger_dify_index(db, doc_id=document_id)
+        payload = await service.trigger_dify_index(db, doc_id=document_id)
         return SyncTriggerResponse(**payload)
     finally:
         db.close()

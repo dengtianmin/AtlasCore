@@ -7,7 +7,6 @@ from app.auth.principal import Principal
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
-from app.integrations.dify import DifyChatResponse
 from app.schemas.chat import ChatFeedbackRequest, ChatMessageRequest
 
 
@@ -35,25 +34,31 @@ def _admin() -> Principal:
 
 
 class StubDifyClient:
-    def chat(self, payload):
-        return DifyChatResponse(
-            answer=f"Answer: {payload.query}",
-            source="dify",
-            sources=[{"title": "doc-1"}],
-            retrieved_context="ctx",
-            session_id=payload.session_id,
-            provider_message_id="msg-1",
-            metadata={},
-        )
+    async def run_workflow(self, *, inputs, user, response_mode, trace_id=None):
+        question = next(iter(inputs.values()))
+        return type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow_run_id": "run-1",
+                "task_id": "task-1",
+                "status": "succeeded",
+                "outputs": {"text": f"Answer: {question}"},
+                "elapsed_time": 0.5,
+                "total_tokens": 10,
+                "total_steps": 1,
+            },
+        )()
 
 
 def test_admin_logs_list_and_detail(monkeypatch, tmp_path):
     _bootstrap_runtime(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "question")
     monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient())
     db = get_session_factory()()
     try:
-        first = send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id="s-1"), db=db)
-        second = send_message(ChatMessageRequest(question="图谱接口做什么？", session_id="s-2"), db=db)
+        first = asyncio.run(send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id="s-1"), db=db))
+        second = asyncio.run(send_message(ChatMessageRequest(question="图谱接口做什么？", session_id="s-2"), db=db))
         submit_feedback(
             first.message_id,
             ChatFeedbackRequest(rating=4, liked=True, comment="不错", source="web"),

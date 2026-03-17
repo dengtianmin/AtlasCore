@@ -7,7 +7,7 @@ from threading import RLock
 from typing import Any
 
 from app.core.config import settings
-from app.integrations.dify import DifyConfigurationError, get_dify_client
+from app.integrations.dify import DifyClientError, DifyConfigurationError, get_dify_client
 
 
 @dataclass(slots=True)
@@ -84,11 +84,11 @@ class RuntimeStatusService:
                 "recorded_at": datetime.now(UTC),
             }
 
-    def get_status(self) -> dict[str, Any]:
-        return self.get_public_status()
+    async def get_status(self) -> dict[str, Any]:
+        return await self.get_public_status()
 
-    def get_public_status(self) -> dict[str, Any]:
-        base = self._build_status_base(include_sensitive_paths=False)
+    async def get_public_status(self) -> dict[str, Any]:
+        base = await self._build_status_base(include_sensitive_paths=False)
         return {
             "app_ready": base["app_ready"],
             "sqlite_ready": base["sqlite_ready"],
@@ -117,17 +117,17 @@ class RuntimeStatusService:
             "last_error": base["last_error"],
         }
 
-    def get_admin_status(self) -> dict[str, Any]:
-        return self._build_status_base(include_sensitive_paths=True)
+    async def get_admin_status(self) -> dict[str, Any]:
+        return await self._build_status_base(include_sensitive_paths=True)
 
-    def _build_status_base(self, *, include_sensitive_paths: bool) -> dict[str, Any]:
+    async def _build_status_base(self, *, include_sensitive_paths: bool) -> dict[str, Any]:
         with self._lock:
             state = deepcopy(self._state)
 
         config_summary = settings.runtime_config_summary()
         paths = config_summary["paths"]
         now = datetime.now(UTC)
-        dify_reachable = self._get_dify_reachable()
+        dify_status = await self._get_dify_status()
         csv_export_ready = bool(paths["csv_export_dir"]["writable"])
         graph_instance_local_path_exists = paths["graph_instance_local_path"]["exists"]
         admin_auth_ready = config_summary["admin_auth_configured"]
@@ -160,7 +160,9 @@ class RuntimeStatusService:
             "csv_export_ready": csv_export_ready,
             "csv_export_dir_writable": csv_export_ready,
             "dify_configured": config_summary["dify_configured"],
-            "dify_reachable": dify_reachable,
+            "dify_reachable": dify_status["reachable"],
+            "dify_validation_ok": dify_status["ok"],
+            "dify_validation_warnings": dify_status["warnings"],
             "admin_auth_ready": admin_auth_ready,
             "admin_auth_configured": admin_auth_ready,
             "document_module_ready": document_module_ready,
@@ -180,19 +182,28 @@ class RuntimeStatusService:
             payload["graph_snapshot_path"] = paths["graph_snapshot_path"]["path"]
             payload["csv_export_dir"] = paths["csv_export_dir"]["path"]
             payload["document_storage_dir"] = paths["document_storage_dir"]["path"]
+            payload["dify_parameters"] = dify_status["parameters"]
         return payload
 
     @staticmethod
-    def _get_dify_reachable() -> bool:
+    async def _get_dify_status() -> dict[str, Any]:
         try:
             client = get_dify_client()
             if not client.is_enabled():
-                return False
-            return bool(client.check_reachable())
+                return {"reachable": False, "ok": False, "warnings": [], "parameters": {}}
+            validation = await client.validate_configuration()
+            return {
+                "reachable": validation.reachable,
+                "ok": validation.ok,
+                "warnings": validation.warnings,
+                "parameters": validation.raw_parameters,
+            }
         except DifyConfigurationError:
-            return False
+            return {"reachable": False, "ok": False, "warnings": [], "parameters": {}}
+        except DifyClientError as exc:
+            return {"reachable": False, "ok": False, "warnings": [str(exc)], "parameters": {}}
         except Exception:
-            return False
+            return {"reachable": False, "ok": False, "warnings": ["unexpected_dify_status_error"], "parameters": {}}
 
 
 runtime_status_service = RuntimeStatusService()

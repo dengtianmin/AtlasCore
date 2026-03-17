@@ -1,3 +1,5 @@
+import asyncio
+
 from app.api.v1.health import health_check, readiness_check
 from app.core.config import settings
 from app.services.runtime_status_service import runtime_status_service
@@ -23,7 +25,7 @@ def test_readiness_check_payload(monkeypatch, tmp_path):
     runtime_status_service.reset()
     runtime_status_service.mark_config_loaded()
 
-    payload = readiness_check()
+    payload = asyncio.run(readiness_check())
 
     assert payload["app_env"] == "test"
     assert payload["current_mode"] == "test"

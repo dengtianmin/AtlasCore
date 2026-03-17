@@ -11,5 +11,5 @@ def health_check() -> dict[str, str]:
 
 
 @router.get("/health/ready")
-def readiness_check() -> dict:
-    return runtime_status_service.get_status()
+async def readiness_check() -> dict:
+    return await runtime_status_service.get_status()

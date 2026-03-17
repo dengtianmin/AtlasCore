@@ -74,7 +74,7 @@ def test_root_and_export_api_flow(monkeypatch, tmp_path):
         assert response.media_type == "text/csv"
         assert Path(response.path).exists()
         assert "What is AtlasCore?" in Path(response.path).read_text(encoding="utf-8")
-        status = runtime_status_service.get_status()
+        status = asyncio.run(runtime_status_service.get_status())
         assert status["last_csv_export"]["filename"] == export_payload.filename
         assert status["last_csv_export"]["status"] == "success"
 

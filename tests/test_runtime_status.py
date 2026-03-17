@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import asyncio
 
 from app.core.config import settings
 from app.services.runtime_status_service import RuntimeStatusService
@@ -29,7 +30,7 @@ def test_runtime_status_service_tracks_graph_and_exports(monkeypatch, tmp_path):
     service.record_graph_export({"status": "success", "filename": "export.db"})
     service.record_csv_export({"status": "success", "filename": "qa.csv"})
 
-    payload = service.get_admin_status()
+    payload = asyncio.run(service.get_admin_status())
 
     assert payload["app_ready"] is True
     assert payload["config_loaded"] is True
@@ -46,6 +47,7 @@ def test_runtime_status_service_tracks_graph_and_exports(monkeypatch, tmp_path):
     assert payload["csv_export_ready"] is True
     assert payload["admin_auth_ready"] is False
     assert payload["document_module_ready"] is True
+    assert payload["dify_validation_ok"] is False
     assert payload["last_graph_import"]["filename"] == "import.db"
     assert payload["last_graph_export"]["filename"] == "export.db"
     assert payload["last_csv_export"]["filename"] == "qa.csv"

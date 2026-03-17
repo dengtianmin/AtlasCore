@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.admin.document_status import DocumentStatus
 from app.admin.storage import DocumentStorage
 from app.core.logging import get_logger, log_event
-from app.integrations.dify import DifyDocumentIndexRequest, get_dify_client
+from app.integrations.dify import DifyClientError, DifyConfigurationError, get_dify_client
 from app.repositories.document_repo import DocumentRepository
 
 logger = get_logger(__name__)
@@ -115,7 +115,7 @@ class AdminDocumentService:
             )
             raise
 
-    def trigger_dify_index(self, db: Session, *, doc_id: UUID) -> dict:
+    async def trigger_dify_index(self, db: Session, *, doc_id: UUID) -> dict:
         doc = self.document_repo.get_by_id(db, doc_id)
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -129,12 +129,10 @@ class AdminDocumentService:
             target_system="dify",
         )
         try:
-            dify_job = self.dify_client.enqueue_document_index(
-                DifyDocumentIndexRequest(
-                    document_id=str(doc.id),
-                    title=doc.filename,
-                    source_uri=doc.source_uri,
-                )
+            uploaded_file = await self.dify_client.upload_file(
+                file_path=str(doc.source_uri or ""),
+                user=str(doc.id),
+                mime_type=doc.content_type,
             )
             updated_doc = self.document_repo.mark_synced(
                 db,
@@ -143,7 +141,7 @@ class AdminDocumentService:
                 status=DocumentStatus.INDEXED.value,
                 synced_at=datetime.now(UTC),
             )
-            updated_doc.note = dify_job.message
+            updated_doc.note = f"Dify file uploaded: {uploaded_file.file_id}"
             db.commit()
             log_event(
                 logger,
@@ -153,13 +151,24 @@ class AdminDocumentService:
                 document_id=str(updated_doc.id),
                 target_system="dify",
                 sync_status=updated_doc.status,
+                provider_file_id=uploaded_file.file_id,
             )
             return {
                 "document_id": updated_doc.id,
                 "status": updated_doc.status,
                 "target_system": "dify",
-                "message": dify_job.message,
+                "message": updated_doc.note,
             }
+        except DifyConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dify integration is not configured",
+            ) from exc
+        except DifyClientError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Dify file upload failed",
+            ) from exc
         except Exception as exc:
             log_event(
                 logger,

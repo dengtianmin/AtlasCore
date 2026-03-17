@@ -8,12 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger, log_event
 from app.integrations.dify import (
-    DifyChatRequest,
+    DifyAuthError,
+    DifyBadRequestError,
     DifyConfigurationError,
-    DifyRequestError,
+    DifyServiceUnavailableError,
     DifyTimeoutError,
+    DifyWorkflowExecutionError,
     get_dify_client,
 )
+from app.core.config import settings
 from app.services.feedback_service import FeedbackService
 from app.services.qa_log_service import QuestionAnswerLogService
 
@@ -26,7 +29,7 @@ class ChatService:
         self.feedback_service = FeedbackService()
         self.dify_client = get_dify_client()
 
-    def ask(
+    async def ask(
         self,
         db: Session,
         *,
@@ -54,12 +57,19 @@ class ChatService:
             session_id=resolved_session_id,
         )
 
+        input_variable = settings.DIFY_TEXT_INPUT_VARIABLE
+        if not input_variable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chat integration is not configured",
+            )
+
         try:
-            dify_response = self.dify_client.chat(
-                DifyChatRequest(
-                    query=normalized_question,
-                    session_id=resolved_session_id,
-                )
+            workflow_result = await self.dify_client.run_workflow(
+                inputs={input_variable: normalized_question},
+                user=self._build_dify_user(resolved_session_id),
+                response_mode=settings.DIFY_RESPONSE_MODE,
+                trace_id=request_id if settings.DIFY_ENABLE_TRACE else None,
             )
         except DifyConfigurationError as exc:
             self._write_failed_log(
@@ -105,7 +115,51 @@ class ChatService:
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="Chat provider timed out",
             ) from exc
-        except DifyRequestError as exc:
+        except DifyBadRequestError as exc:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_bad_request",
+                answer="Dify request rejected",
+            )
+            log_event(
+                logger,
+                logging.WARNING,
+                "dify_request_failed",
+                "failed",
+                request_id=request_id,
+                session_id=resolved_session_id,
+                error_type="dify_bad_request",
+                detail=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Chat provider rejected request",
+            ) from exc
+        except DifyAuthError as exc:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_auth_failed",
+                answer="Dify authentication failed",
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "dify_request_failed",
+                "failed",
+                request_id=request_id,
+                session_id=resolved_session_id,
+                error_type="dify_auth_failed",
+                detail=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Chat provider authentication failed",
+            ) from exc
+        except (DifyServiceUnavailableError, DifyWorkflowExecutionError) as exc:
             self._write_failed_log(
                 db,
                 question=normalized_question,
@@ -128,15 +182,16 @@ class ChatService:
                 detail="Chat provider request failed",
             ) from exc
 
+        answer = self._extract_answer(workflow_result.outputs)
         payload = self.qa_log_service.create_log(
             db,
             question=normalized_question,
-            retrieved_context=dify_response.retrieved_context,
-            answer=dify_response.answer,
-            session_id=dify_response.session_id or resolved_session_id,
-            source=dify_response.source,
-            status="succeeded",
-            provider_message_id=dify_response.provider_message_id,
+            retrieved_context=None,
+            answer=answer,
+            session_id=resolved_session_id,
+            source="dify",
+            status=workflow_result.status or "succeeded",
+            provider_message_id=workflow_result.task_id or workflow_result.workflow_run_id,
             error_code=None,
         )
         log_event(
@@ -146,8 +201,8 @@ class ChatService:
             "success",
             request_id=request_id,
             session_id=payload["session_id"],
-            source=dify_response.source,
-            provider_message_id=dify_response.provider_message_id,
+            source="dify",
+            provider_message_id=workflow_result.task_id or workflow_result.workflow_run_id,
         )
         log_event(
             logger,
@@ -163,13 +218,19 @@ class ChatService:
         return {
             "message_id": payload["id"],
             "session_id": payload["session_id"],
-            "answer": dify_response.answer,
-            "source": dify_response.source,
-            "sources": [item.title for item in dify_response.sources],
-            "retrieved_context": dify_response.retrieved_context,
+            "answer": answer,
+            "source": "dify",
+            "sources": [],
+            "retrieved_context": None,
             "status": payload["status"],
-            "provider_message_id": dify_response.provider_message_id,
-            "metadata": dify_response.metadata,
+            "provider_message_id": workflow_result.task_id or workflow_result.workflow_run_id,
+            "metadata": {
+                "workflow_run_id": workflow_result.workflow_run_id,
+                "task_id": workflow_result.task_id,
+                "total_tokens": workflow_result.total_tokens,
+                "total_steps": workflow_result.total_steps,
+                "elapsed_time": workflow_result.elapsed_time,
+            },
             "created_at": payload["created_at"],
         }
 
@@ -222,4 +283,24 @@ class ChatService:
             source="dify",
             qa_status="failed",
             error_code=error_code,
+        )
+
+    @staticmethod
+    def _build_dify_user(session_id: str) -> str:
+        prefix = settings.DIFY_USER_PREFIX or "guest"
+        return f"{prefix}-{session_id}"
+
+    @staticmethod
+    def _extract_answer(outputs: dict) -> str:
+        preferred_keys = ("text", "answer", "output", "result")
+        for key in preferred_keys:
+            value = outputs.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in outputs.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Chat provider response did not contain an answer",
         )

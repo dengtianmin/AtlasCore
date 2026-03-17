@@ -1,3 +1,5 @@
+import asyncio
+
 from app.api.v1.admin_system import get_system_status
 from app.auth.principal import Principal
 from app.core.config import settings
@@ -22,10 +24,11 @@ def test_admin_system_status_contains_integration_fields(monkeypatch, tmp_path):
     runtime_status_service.reset()
     runtime_status_service.mark_config_loaded()
 
-    payload = get_system_status(_=_admin())
+    payload = asyncio.run(get_system_status(_=_admin()))
 
     assert payload["graph_instance_id"] == "status-instance"
     assert payload["graph_db_version"] == "status-v1"
     assert payload["dify_reachable"] is False
+    assert payload["dify_validation_ok"] is False
     assert payload["multi_instance_rule"] == "no_shared_graph_sqlite"
     assert "unit-test-secret" not in str(payload)

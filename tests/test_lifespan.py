@@ -45,7 +45,7 @@ def test_lifespan_context_runs_without_error(monkeypatch, tmp_path):
         set(inspector.get_table_names())
     )
 
-    status = runtime_status_service.get_status()
+    status = asyncio.run(runtime_status_service.get_status())
     assert status["config_loaded"] is True
     assert status["sqlite_ready"] is True
     assert status["migration_ready"] is True
