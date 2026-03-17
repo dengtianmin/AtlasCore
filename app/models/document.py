@@ -19,9 +19,17 @@ class Document(Base):
     synced_to_dify: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     synced_to_graph: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    local_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     file_size: Mapped[int | None] = mapped_column(nullable=True)
+    file_extension: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    dify_upload_file_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dify_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dify_sync_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    dify_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dify_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[UUID | None] = mapped_column(
         GUID(), ForeignKey("admin_accounts.id", ondelete="SET NULL"), nullable=True
     )

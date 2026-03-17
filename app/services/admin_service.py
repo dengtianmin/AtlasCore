@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import logging
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.admin.document_status import DocumentStatus
 from app.admin.storage import DocumentStorage
+from app.core.config import settings
 from app.core.logging import get_logger, log_event
 from app.integrations.dify import DifyClientError, DifyConfigurationError, get_dify_client
 from app.repositories.document_repo import DocumentRepository
@@ -23,7 +25,8 @@ class AdminDocumentService:
         self.dify_client = get_dify_client()
 
     def upload_document(self, db: Session, *, upload: UploadFile, admin_user_id: UUID) -> dict:
-        source_uri, file_size = self.storage.save(upload)
+        self._validate_upload(upload)
+        stored = self.storage.save(upload)
         filename = upload.filename or "untitled"
         now = datetime.now(UTC)
 
@@ -33,13 +36,29 @@ class AdminDocumentService:
             source_type="upload",
             status=DocumentStatus.UPLOADED.value,
             uploaded_at=now,
-            source_uri=source_uri,
+            note=None,
+            local_path=stored.local_path,
+            source_uri=stored.local_path,
             created_by=admin_user_id,
-            content_type=upload.content_type,
-            file_size=file_size,
+            mime_type=stored.mime_type,
+            content_type=stored.mime_type,
+            file_size=stored.file_size,
+            file_extension=stored.file_extension,
+            dify_sync_status="not_synced",
             created_at=now,
         )
         db.commit()
+        log_event(
+            logger,
+            logging.INFO,
+            "document_uploaded",
+            "success",
+            document_id=str(doc.id),
+            filename=doc.filename,
+            local_path=doc.local_path,
+            mime_type=doc.mime_type,
+            file_size=doc.file_size,
+        )
         return self._to_payload(doc)
 
     def list_documents(self, db: Session, *, limit: int, offset: int) -> dict:
@@ -191,12 +210,47 @@ class AdminDocumentService:
             "synced_to_dify": doc.synced_to_dify,
             "synced_to_graph": doc.synced_to_graph,
             "note": doc.note,
+            "local_path": doc.local_path,
             "source_uri": doc.source_uri,
+            "mime_type": doc.mime_type,
             "content_type": doc.content_type,
             "file_size": doc.file_size,
+            "file_extension": doc.file_extension,
+            "dify_upload_file_id": doc.dify_upload_file_id,
+            "dify_uploaded_at": doc.dify_uploaded_at,
+            "dify_sync_status": doc.dify_sync_status,
+            "dify_error_code": doc.dify_error_code,
+            "dify_error_message": doc.dify_error_message,
             "created_by": doc.created_by,
             "created_at": doc.created_at,
             "last_sync_target": doc.last_sync_target,
             "last_sync_status": doc.last_sync_status,
             "last_sync_at": doc.last_sync_at,
         }
+
+    def _validate_upload(self, upload: UploadFile) -> None:
+        filename = (upload.filename or "").strip()
+        if not filename:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must have a filename")
+
+        upload.file.seek(0, 2)
+        file_size = upload.file.tell()
+        upload.file.seek(0)
+
+        if file_size <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+        if file_size > settings.DOCUMENT_MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Uploaded file exceeds local size limit",
+            )
+
+        suffix = Path(filename).suffix.lower().lstrip(".")
+        allowed_extensions = settings.document_allowed_extensions
+        if allowed_extensions and suffix not in allowed_extensions:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file type is not allowed")
+
+        mime_type = (upload.content_type or "").lower()
+        allowed_mime_types = settings.document_allowed_mime_types
+        if allowed_mime_types and mime_type and mime_type not in allowed_mime_types:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded MIME type is not allowed")

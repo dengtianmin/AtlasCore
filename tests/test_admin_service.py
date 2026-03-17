@@ -8,6 +8,8 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.admin.document_status import DocumentStatus
+from app.admin.storage import StoredDocument
+from app.core.config import settings
 from app.integrations.dify.schemas import DifyUploadedFile
 from app.services.admin_service import AdminDocumentService
 
@@ -31,9 +33,17 @@ def _doc(status: str) -> SimpleNamespace:
         synced_to_dify=False,
         synced_to_graph=False,
         note=None,
+        local_path="/tmp/doc.txt",
         source_uri="/tmp/doc.txt",
+        mime_type="text/plain",
         content_type="text/plain",
         file_size=3,
+        file_extension="txt",
+        dify_upload_file_id=None,
+        dify_uploaded_at=None,
+        dify_sync_status="not_synced",
+        dify_error_code=None,
+        dify_error_message=None,
         created_by=uuid4(),
         created_at=now,
         last_sync_target=None,
@@ -49,7 +59,17 @@ def test_upload_document_creates_metadata(monkeypatch):
 
     upload = UploadFile(filename="doc.txt", file=BytesIO(b"abc"), headers={"content-type": "text/plain"})
 
-    monkeypatch.setattr(service.storage, "save", lambda _: ("/tmp/doc.txt", 3))
+    monkeypatch.setattr(
+        service.storage,
+        "save",
+        lambda _: StoredDocument(
+            local_path="/tmp/doc.txt",
+            file_size=3,
+            mime_type="text/plain",
+            file_extension="txt",
+            stored_filename="stored-doc.txt",
+        ),
+    )
     created_doc = _doc(DocumentStatus.UPLOADED.value)
 
     captured = {}
@@ -67,7 +87,38 @@ def test_upload_document_creates_metadata(monkeypatch):
     assert captured["source_type"] == "upload"
     assert captured["created_by"] == admin_id
     assert captured["filename"] == "doc.txt"
+    assert captured["local_path"] == "/tmp/doc.txt"
+    assert captured["mime_type"] == "text/plain"
+    assert captured["file_extension"] == "txt"
+    assert captured["dify_sync_status"] == "not_synced"
     assert "created_at" in captured
+
+
+def test_upload_document_rejects_empty_file():
+    service = AdminDocumentService()
+    db = DummyDB()
+
+    upload = UploadFile(filename="empty.txt", file=BytesIO(b""), headers={"content-type": "text/plain"})
+
+    with pytest.raises(HTTPException) as exc:
+        service.upload_document(db, upload=upload, admin_user_id=uuid4())
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Uploaded file is empty"
+
+
+def test_upload_document_rejects_disallowed_extension(monkeypatch):
+    service = AdminDocumentService()
+    db = DummyDB()
+    monkeypatch.setattr(settings, "DOCUMENT_ALLOWED_EXTENSIONS", "pdf")
+
+    upload = UploadFile(filename="doc.txt", file=BytesIO(b"abc"), headers={"content-type": "text/plain"})
+
+    with pytest.raises(HTTPException) as exc:
+        service.upload_document(db, upload=upload, admin_user_id=uuid4())
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Uploaded file type is not allowed"
 
 
 def test_get_document_not_found():

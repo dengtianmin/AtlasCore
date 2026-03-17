@@ -16,9 +16,17 @@ class DocumentUploadResponse(BaseModel):
     synced_to_dify: bool
     synced_to_graph: bool
     note: str | None
+    local_path: str | None = None
     source_uri: str | None
+    mime_type: str | None = None
     content_type: str | None
     file_size: int | None
+    file_extension: str | None = None
+    dify_upload_file_id: str | None = None
+    dify_uploaded_at: datetime | None = None
+    dify_sync_status: str | None = None
+    dify_error_code: str | None = None
+    dify_error_message: str | None = None
     created_by: UUID | None
     created_at: datetime
     last_sync_target: str | None = None

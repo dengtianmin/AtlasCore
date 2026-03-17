@@ -19,10 +19,14 @@ class DocumentRepository:
         synced_to_dify: bool = False,
         synced_to_graph: bool = False,
         note: str | None = None,
+        local_path: str | None = None,
         source_uri: str | None = None,
         created_by: UUID | None,
+        mime_type: str | None,
         content_type: str | None,
         file_size: int | None,
+        file_extension: str | None,
+        dify_sync_status: str | None = None,
         created_at: datetime,
     ) -> Document:
         doc = Document(
@@ -33,10 +37,14 @@ class DocumentRepository:
             synced_to_dify=synced_to_dify,
             synced_to_graph=synced_to_graph,
             note=note,
+            local_path=local_path,
             source_uri=source_uri,
             created_by=created_by,
+            mime_type=mime_type,
             content_type=content_type,
             file_size=file_size,
+            file_extension=file_extension,
+            dify_sync_status=dify_sync_status,
             created_at=created_at,
         )
         db.add(doc)

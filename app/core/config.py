@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     DIFY_USER_PREFIX: str = "guest"
     DIFY_DEBUG_LOG_PATH: str = "./data/dify_debug.jsonl"
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
+    DOCUMENT_MAX_FILE_SIZE_BYTES: int = Field(default=15 * 1024 * 1024, gt=0)
+    DOCUMENT_ALLOWED_EXTENSIONS: str | None = None
+    DOCUMENT_ALLOWED_MIME_TYPES: str | None = None
 
     API_V1_PREFIX: str = ""
     HOST: str = "0.0.0.0"
@@ -154,6 +157,20 @@ class Settings(BaseSettings):
             "graph_snapshot_path": self.graph_snapshot_path,
             "graph_instance_local_path": self.graph_instance_path,
         }
+
+    @staticmethod
+    def _parse_csv_values(value: str | None) -> list[str]:
+        if not value:
+            return []
+        return [item.strip().lower() for item in value.split(",") if item.strip()]
+
+    @property
+    def document_allowed_extensions(self) -> list[str]:
+        return self._parse_csv_values(self.DOCUMENT_ALLOWED_EXTENSIONS)
+
+    @property
+    def document_allowed_mime_types(self) -> list[str]:
+        return self._parse_csv_values(self.DOCUMENT_ALLOWED_MIME_TYPES)
 
     def _secret_resolver(self) -> SecretResolver:
         return SecretResolver(self)
