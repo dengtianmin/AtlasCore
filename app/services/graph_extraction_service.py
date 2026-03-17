@@ -240,16 +240,17 @@ class GraphExtractionService:
         except Exception as exc:
             db.rollback()
             task = self.task_repo.get_by_id(db, task_id=task.id) or task
+            error_message = self._format_exception_message(exc)
             task.status = "failed"
             task.finished_at = datetime.now(UTC)
-            task.error_message = str(exc)
+            task.error_message = error_message
             self.task_repo.save(db, task=task)
             for document in documents:
                 refreshed = self.document_repo.get_by_id(db, document.id)
                 if refreshed is None:
                     continue
                 refreshed.status = "extraction_failed"
-                refreshed.note = str(exc)
+                refreshed.note = error_message
                 self.document_repo.save(db, doc=refreshed)
             db.commit()
             log_event(
@@ -258,11 +259,14 @@ class GraphExtractionService:
                 "graph_extraction_task_failed",
                 "failed",
                 task_id=str(task.id),
-                detail=str(exc),
+                detail=error_message,
+                error_type=type(exc).__name__,
+                error_repr=repr(exc),
+                status_code=exc.status_code if isinstance(exc, HTTPException) else None,
             )
             if isinstance(exc, HTTPException):
                 raise
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Graph extraction failed: {exc}") from exc
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Graph extraction failed: {error_message}") from exc
 
     def get_prompt_setting(self, db: Session) -> dict:
         setting = self.prompt_repo.get_active(db)
@@ -547,14 +551,42 @@ class GraphExtractionService:
         }
         if not resolved_model_setting.thinking_enabled:
             payload["thinking"] = {"type": "disabled"}
-        async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS, trust_env=False) as client:
-            response = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=payload,
-            )
-            response.raise_for_status()
-            result = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=settings.DIFY_TIMEOUT_SECONDS, trust_env=False) as client:
+                response = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json=payload,
+                )
+                response.raise_for_status()
+                result = response.json()
+        except httpx.TimeoutException as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"Graph extraction model request timed out: {type(exc).__name__}",
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            response_text = (exc.response.text or "").strip()
+            detail = f"Graph extraction model request failed with status {exc.response.status_code}"
+            if response_text:
+                detail = f"{detail}: {response_text[:500]}"
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+        except httpx.RequestError as exc:
+            detail = str(exc).strip() or repr(exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Graph extraction model request error ({type(exc).__name__}): {detail}",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Graph extraction model returned invalid JSON: {exc}",
+            ) from exc
+        except (KeyError, IndexError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Graph extraction model response schema is invalid: {exc}",
+            ) from exc
         return str(result["choices"][0]["message"]["content"])
 
     def _parse_extraction_payload(self, raw_text: str) -> ExtractedGraphPayload:
@@ -782,6 +814,17 @@ class GraphExtractionService:
             created_at=setting.created_at,
             updated_at=setting.updated_at,
         )
+
+    def _format_exception_message(self, exc: Exception) -> str:
+        if isinstance(exc, HTTPException):
+            detail = exc.detail
+            if isinstance(detail, str) and detail.strip():
+                return detail
+            return f"{type(exc).__name__}(status_code={exc.status_code})"
+        text = str(exc).strip()
+        if text:
+            return text
+        return repr(exc)
 
     def _get_document_or_404(self, db: Session, *, document_id: UUID) -> Document:
         document = self.document_repo.get_by_id(db, document_id)

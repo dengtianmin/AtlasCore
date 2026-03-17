@@ -4,6 +4,8 @@ from io import BytesIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import httpx
+import pytest
 from fastapi import UploadFile
 
 from app.core.config import settings
@@ -341,3 +343,90 @@ def test_active_db_model_without_key_falls_back_to_env_key(monkeypatch, tmp_path
         assert resolved.thinking_enabled is False
     finally:
         db.close()
+
+
+def test_call_model_surfaces_http_status_error_details(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    request = httpx.Request("POST", "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+    response = httpx.Response(401, request=request, text='{"error":"invalid api key"}')
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            raise httpx.HTTPStatusError("bad status", request=request, response=response)
+
+    monkeypatch.setattr("app.services.graph_extraction_service.httpx.AsyncClient", lambda **kwargs: FakeClient())
+
+    model_setting = type(
+        "ModelSetting",
+        (),
+        {
+            "id": uuid4(),
+            "provider": "openai-compatible",
+            "model_name": "GLM-5",
+            "api_base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key_ciphertext": service.secret_box.encrypt("demo-key"),
+            "enabled": True,
+            "thinking_enabled": False,
+            "is_active": True,
+            "updated_by": "admin",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+        },
+    )()
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(service._call_model(prompt_text="prompt", markdown="markdown", model_setting=model_setting))
+
+    exc = exc_info.value
+    assert isinstance(exc, Exception)
+    assert getattr(exc, "status_code", None) == 502
+    assert "status 401" in exc.detail
+    assert "invalid api key" in exc.detail
+
+
+def test_call_model_surfaces_timeout_exception_type(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            raise httpx.ReadTimeout("")
+
+    monkeypatch.setattr("app.services.graph_extraction_service.httpx.AsyncClient", lambda **kwargs: FakeClient())
+
+    model_setting = type(
+        "ModelSetting",
+        (),
+        {
+            "id": uuid4(),
+            "provider": "openai-compatible",
+            "model_name": "GLM-5",
+            "api_base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key_ciphertext": service.secret_box.encrypt("demo-key"),
+            "enabled": True,
+            "thinking_enabled": False,
+            "is_active": True,
+            "updated_by": "admin",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+        },
+    )()
+
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(service._call_model(prompt_text="prompt", markdown="markdown", model_setting=model_setting))
+
+    exc = exc_info.value
+    assert getattr(exc, "status_code", None) == 504
+    assert "timed out" in exc.detail
+    assert "ReadTimeout" in exc.detail
