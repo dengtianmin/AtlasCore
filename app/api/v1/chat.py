@@ -3,7 +3,9 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+import json
 
 from app.db.session import get_db_session
 from app.schemas.chat import (
@@ -28,6 +30,18 @@ async def send_message(
     db: Annotated[Session, Depends(get_session)],
 ) -> ChatMessageResponse:
     return ChatMessageResponse(**await service.ask(db, question=payload.question, session_id=payload.session_id))
+
+
+@router.post("/messages/stream")
+async def stream_message(
+    payload: ChatMessageRequest,
+    db: Annotated[Session, Depends(get_session)],
+) -> StreamingResponse:
+    async def event_generator():
+        async for event in service.stream_ask(db, question=payload.question, session_id=payload.session_id):
+            yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/messages/{message_id}/feedback", response_model=ChatFeedbackResponse)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DifySettings(BaseModel):
@@ -15,6 +15,21 @@ class DifySettings(BaseModel):
     file_input_variable: str | None = None
     enable_trace: bool = False
     user_prefix: str = "guest"
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            return None
+
+        if normalized.endswith("/v1"):
+            normalized = normalized[:-3].rstrip("/")
+
+        return normalized or None
 
     @property
     def enabled(self) -> bool:
@@ -30,6 +45,17 @@ class DifyWorkflowResult(BaseModel):
     elapsed_time: float | None = None
     total_tokens: int | None = None
     total_steps: int | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class DifyStreamEvent(BaseModel):
+    event: str
+    workflow_run_id: str | None = None
+    task_id: str | None = None
+    text: str | None = None
+    status: str | None = None
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    error: str | dict[str, Any] | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 
 

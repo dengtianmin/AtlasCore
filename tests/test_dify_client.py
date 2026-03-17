@@ -23,6 +23,13 @@ def _client(handler) -> DifyClient:
     return DifyClient(transport=transport)
 
 
+async def _collect_events(stream) -> list:
+    items = []
+    async for event in stream:
+        items.append(event)
+    return items
+
+
 def test_run_workflow_success(monkeypatch):
     monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
@@ -56,6 +63,33 @@ def test_run_workflow_success(monkeypatch):
     assert result.task_id == "task-1"
     assert result.outputs["text"] == "world"
     assert result.total_tokens == 12
+
+
+def test_stream_workflow_success(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://dify.example.com/v1/workflows/run")
+        payload = (
+            'event: workflow_started\n'
+            'data: {"event":"workflow_started","workflow_run_id":"run-1","task_id":"task-1"}\n\n'
+            'event: text_chunk\n'
+            'data: {"event":"text_chunk","data":{"text":"Hel"}}\n\n'
+            'event: text_chunk\n'
+            'data: {"event":"text_chunk","data":{"text":"lo"}}\n\n'
+            'event: workflow_finished\n'
+            'data: {"event":"workflow_finished","workflow_run_id":"run-1","task_id":"task-1","data":{"status":"succeeded","outputs":{"text":"Hello"}}}\n\n'
+        )
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=payload)
+
+    events = asyncio.run(_collect_events(_client(handler).stream_workflow(inputs={"question": "hello"}, user="guest-1")))
+
+    assert [event.event for event in events] == ["workflow_started", "text_chunk", "text_chunk", "workflow_finished"]
+    assert events[1].text == "Hel"
+    assert events[2].text == "lo"
+    assert events[3].status == "succeeded"
 
 
 def test_upload_file_success(monkeypatch, tmp_path):
@@ -101,6 +135,20 @@ def test_get_parameters_success(monkeypatch):
     assert payload["user_input_form"][0]["variable"] == "question"
 
 
+def test_base_url_with_v1_suffix_is_normalized(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com/v1")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://dify.example.com/v1/parameters")
+        return httpx.Response(200, json={"user_input_form": [{"variable": "question"}]})
+
+    payload = asyncio.run(_client(handler).get_parameters())
+
+    assert payload["user_input_form"][0]["variable"] == "question"
+
+
 def test_validate_configuration_success(monkeypatch):
     monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
     monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
@@ -126,6 +174,39 @@ def test_validate_configuration_success(monkeypatch):
     assert result.text_input_variable_exists is True
     assert result.file_input_variable_exists is True
     assert result.file_upload_enabled is True
+
+
+def test_validate_configuration_supports_nested_user_input_form(monkeypatch):
+    monkeypatch.setattr(settings, "DIFY_BASE_URL", "https://dify.example.com")
+    monkeypatch.setattr(settings, "DIFY_API_KEY", "api-key")
+    monkeypatch.setattr(settings, "DIFY_API_KEY_SECRET_NAME", None)
+    monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "query")
+    monkeypatch.setattr(settings, "DIFY_FILE_INPUT_VARIABLE", None)
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "user_input_form": [
+                    {
+                        "text-input": {
+                            "variable": "query",
+                            "label": "query",
+                            "type": "text-input",
+                            "required": True,
+                        }
+                    }
+                ],
+                "file_upload": {"enabled": False},
+            },
+        )
+
+    result = asyncio.run(_client(handler).validate_configuration())
+
+    assert result.ok is True
+    assert result.text_input_variable_exists is True
+    assert result.file_upload_enabled is False
+    assert result.warnings == []
 
 
 def test_validate_configuration_reports_missing_variable(monkeypatch):
@@ -247,3 +328,12 @@ def test_logging_does_not_leak_sensitive_information(monkeypatch, caplog):
     joined = "\n".join(record.getMessage() for record in caplog.records)
     assert "secret-api-key" not in joined
     assert "Bearer secret-api-key" not in joined
+
+
+def test_http_client_does_not_trust_proxy_env():
+    client = DifyClient()
+    http_client = client._build_http_client()
+    try:
+        assert http_client._trust_env is False
+    finally:
+        asyncio.run(http_client.aclose())

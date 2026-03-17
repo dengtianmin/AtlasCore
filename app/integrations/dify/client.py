@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Protocol
+from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import httpx
@@ -34,6 +35,7 @@ from app.integrations.dify.schemas import (
     DifyDocumentIndexRequest,
     DifyJobResponse,
     DifySettings,
+    DifyStreamEvent,
     DifyUploadedFile,
     DifyValidationResult,
     DifyWorkflowResult,
@@ -67,6 +69,15 @@ class DifyClientProtocol(Protocol):
         user: str,
         mime_type: str | None = None,
     ) -> DifyUploadedFile:
+        ...
+
+    async def stream_workflow(
+        self,
+        inputs: dict[str, Any],
+        user: str,
+        response_mode: str = "streaming",
+        trace_id: str | None = None,
+    ) -> AsyncIterator[DifyStreamEvent]:
         ...
 
 
@@ -211,6 +222,32 @@ class DifyClient:
             created_at=raw.get("created_at"),
             raw=raw,
         )
+
+    async def stream_workflow(
+        self,
+        inputs: dict[str, Any],
+        user: str,
+        response_mode: str = "streaming",
+        trace_id: str | None = None,
+    ) -> AsyncIterator[DifyStreamEvent]:
+        workflow_id = self._settings.workflow_id
+        path = "/workflows/run" if not workflow_id else f"/workflows/{workflow_id}/run"
+        payload = {
+            "inputs": inputs,
+            "response_mode": response_mode,
+            "user": user,
+        }
+        if trace_id and self._settings.enable_trace:
+            payload["trace_id"] = trace_id
+
+        async for event in self._request_stream(
+            "POST",
+            path,
+            json_body=payload,
+            user=user,
+            trace_id=trace_id,
+        ):
+            yield event
 
     async def get_parameters(self) -> dict[str, Any]:
         return await self._request_json("GET", "/parameters")
@@ -377,14 +414,70 @@ class DifyClient:
         assert last_error is not None
         raise last_error
 
-    def _build_headers(self) -> dict[str, str]:
-        return {
+    async def _request_stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        user: str | None = None,
+        trace_id: str | None = None,
+    ) -> AsyncIterator[DifyStreamEvent]:
+        self._ensure_configured()
+        started = perf_counter()
+        try:
+            async with self._build_http_client() as client:
+                async with client.stream(
+                    method=method,
+                    url=self._join_url(path),
+                    headers=self._build_headers(streaming=True),
+                    json=json_body,
+                ) as response:
+                    elapsed_ms = round((perf_counter() - started) * 1000, 2)
+                    if response.is_error:
+                        payload = self._decode_json_bytes(await response.aread(), status_code=response.status_code)
+                        self._log_request(
+                            method=method,
+                            path=path,
+                            trace_id=trace_id,
+                            user=user,
+                            status_code=response.status_code,
+                            elapsed_ms=elapsed_ms,
+                            error_code=str(payload.get("code") or payload.get("error_code") or ""),
+                            error_message=str(payload.get("message") or payload.get("error") or response.reason_phrase),
+                        )
+                        self._raise_for_dify_error(response.status_code, payload)
+                    self._log_request(
+                        method=method,
+                        path=path,
+                        trace_id=trace_id,
+                        user=user,
+                        status_code=response.status_code,
+                        elapsed_ms=elapsed_ms,
+                    )
+                    async for event in self._iter_sse_events(response):
+                        yield event
+        except (httpx.TimeoutException, asyncio.TimeoutError) as exc:
+            raise DifyTimeoutError("Dify request timed out", details={"path": path}) from exc
+        except httpx.HTTPError as exc:
+            raise DifyServiceUnavailableError(
+                "Dify request failed due to a network error",
+                details={"path": path, "reason": str(exc)},
+            ) from exc
+
+    def _build_headers(self, *, streaming: bool = False) -> dict[str, str]:
+        headers = {
             "Authorization": f"Bearer {self._settings.api_key}",
-            "Accept": "application/json",
+            "Accept": "text/event-stream" if streaming else "application/json",
         }
+        return headers
 
     def _build_http_client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=self._settings.timeout_seconds, transport=self._transport)
+        return httpx.AsyncClient(
+            timeout=self._settings.timeout_seconds,
+            transport=self._transport,
+            trust_env=False,
+        )
 
     def _join_url(self, path: str) -> str:
         return f"{str(self._settings.base_url or '').rstrip('/')}/v1/{path.lstrip('/')}"
@@ -427,18 +520,111 @@ class DifyClient:
         return payload
 
     @staticmethod
+    def _decode_json_bytes(raw_body: bytes, *, status_code: int) -> dict[str, Any]:
+        try:
+            payload = httpx.Response(status_code, content=raw_body).json()
+        except ValueError as exc:
+            raise DifyRequestError("Dify returned invalid JSON", status_code=status_code) from exc
+        if not isinstance(payload, dict):
+            raise DifyRequestError("Dify returned an unexpected response body", status_code=status_code)
+        return payload
+
+    async def _iter_sse_events(self, response: httpx.Response) -> AsyncIterator[DifyStreamEvent]:
+        event_name: str | None = None
+        data_lines: list[str] = []
+
+        async for line in response.aiter_lines():
+            if not line:
+                parsed = self._parse_sse_event(event_name, data_lines)
+                if parsed is not None:
+                    yield parsed
+                event_name = None
+                data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_name = line.split(":", 1)[1].strip() or None
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line.split(":", 1)[1].lstrip())
+
+        parsed = self._parse_sse_event(event_name, data_lines)
+        if parsed is not None:
+            yield parsed
+
+    @staticmethod
+    def _parse_sse_event(event_name: str | None, data_lines: list[str]) -> DifyStreamEvent | None:
+        if not event_name and not data_lines:
+            return None
+
+        raw_data = "\n".join(data_lines).strip()
+        if not raw_data or raw_data == "[DONE]":
+            return None
+
+        try:
+            payload = httpx.Response(200, content=raw_data.encode("utf-8")).json()
+        except ValueError:
+            payload = {"text": raw_data}
+
+        if not isinstance(payload, dict):
+            payload = {"data": payload}
+
+        normalized_event = str(event_name or payload.get("event") or "message")
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        text = DifyClient._extract_stream_text(payload, data)
+        error = payload.get("message") or payload.get("error") or data.get("error")
+
+        return DifyStreamEvent(
+            event=normalized_event,
+            workflow_run_id=str(payload.get("workflow_run_id") or data.get("workflow_run_id") or "") or None,
+            task_id=str(payload.get("task_id") or data.get("task_id") or "") or None,
+            text=text,
+            status=str(data.get("status") or payload.get("status") or "") or None,
+            outputs=data.get("outputs") if isinstance(data.get("outputs"), dict) else {},
+            error=error,
+            raw=payload,
+        )
+
+    @staticmethod
+    def _extract_stream_text(payload: dict[str, Any], data: dict[str, Any]) -> str | None:
+        candidates = (
+            payload.get("text"),
+            payload.get("answer"),
+            payload.get("chunk"),
+            data.get("text"),
+            data.get("answer"),
+            data.get("chunk"),
+            data.get("delta"),
+        )
+        for value in candidates:
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    @staticmethod
     def _extract_input_names(parameters: dict[str, Any]) -> set[str]:
+        def collect_names(value: Any) -> set[str]:
+            names: set[str] = set()
+            if isinstance(value, dict):
+                for key in ("variable", "name", "field", "input_variable"):
+                    candidate = value.get(key)
+                    if isinstance(candidate, str) and candidate:
+                        names.add(candidate)
+                for nested in value.values():
+                    names.update(collect_names(nested))
+            elif isinstance(value, list):
+                for item in value:
+                    names.update(collect_names(item))
+            return names
+
         names: set[str] = set()
         fields = parameters.get("user_input_form") or parameters.get("inputs") or parameters.get("input_form")
         if isinstance(fields, list):
             for item in fields:
-                if not isinstance(item, dict):
-                    continue
-                for key in ("variable", "name", "field", "input_variable"):
-                    value = item.get(key)
-                    if isinstance(value, str) and value:
-                        names.add(value)
+                names.update(collect_names(item))
         elif isinstance(fields, dict):
+            names.update(collect_names(fields))
             names.update(str(key) for key in fields.keys())
         return names
 
@@ -452,6 +638,8 @@ class DifyClient:
             if isinstance(file_upload, bool):
                 return file_upload
         files = parameters.get("files") or parameters.get("file_upload")
+        if isinstance(files, dict) and "enabled" in files:
+            return bool(files.get("enabled"))
         return bool(files)
 
     @staticmethod

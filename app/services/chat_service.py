@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 import logging
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from app.integrations.dify import (
     DifyBadRequestError,
     DifyConfigurationError,
     DifyServiceUnavailableError,
+    DifyStreamEvent,
     DifyTimeoutError,
     DifyWorkflowExecutionError,
     get_dify_client,
@@ -37,32 +39,10 @@ class ChatService:
         session_id: str | None,
     ) -> dict:
         normalized_question = question.strip()
-        resolved_session_id = session_id or f"session-{uuid4().hex[:12]}"
-        request_id = f"chat-{uuid4().hex[:12]}"
-
-        log_event(
-            logger,
-            logging.INFO,
-            "chat_request_received",
-            "started",
-            request_id=request_id,
-            session_id=resolved_session_id,
+        normalized_question, resolved_session_id, request_id, input_variable = self._prepare_request(
+            question=normalized_question,
+            session_id=session_id,
         )
-        log_event(
-            logger,
-            logging.INFO,
-            "dify_request_started",
-            "started",
-            request_id=request_id,
-            session_id=resolved_session_id,
-        )
-
-        input_variable = settings.DIFY_TEXT_INPUT_VARIABLE
-        if not input_variable:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Chat integration is not configured",
-            )
 
         try:
             workflow_result = await self.dify_client.run_workflow(
@@ -183,37 +163,15 @@ class ChatService:
             ) from exc
 
         answer = self._extract_answer(workflow_result.outputs)
-        payload = self.qa_log_service.create_log(
+        payload = self._write_success_log(
             db,
             question=normalized_question,
-            retrieved_context=None,
-            answer=answer,
             session_id=resolved_session_id,
-            source="dify",
-            status=workflow_result.status or "succeeded",
-            provider_message_id=workflow_result.task_id or workflow_result.workflow_run_id,
-            error_code=None,
-        )
-        log_event(
-            logger,
-            logging.INFO,
-            "dify_request_succeeded",
-            "success",
             request_id=request_id,
-            session_id=payload["session_id"],
-            source="dify",
-            provider_message_id=workflow_result.task_id or workflow_result.workflow_run_id,
-        )
-        log_event(
-            logger,
-            logging.INFO,
-            "qa_log_written",
-            "success",
-            request_id=request_id,
-            session_id=payload["session_id"],
-            qa_log_id=str(payload["id"]),
-            source=payload["source"],
-            qa_status=payload["status"],
+            answer=answer,
+            workflow_run_id=workflow_result.workflow_run_id,
+            task_id=workflow_result.task_id,
+            status_value=workflow_result.status or "succeeded",
         )
         return {
             "message_id": payload["id"],
@@ -235,6 +193,143 @@ class ChatService:
             "created_at": payload["created_at"],
         }
 
+    async def stream_ask(
+        self,
+        db: Session,
+        *,
+        question: str,
+        session_id: str | None,
+    ) -> AsyncIterator[dict]:
+        normalized_question, resolved_session_id, request_id, input_variable = self._prepare_request(
+            question=question,
+            session_id=session_id,
+        )
+        answer_parts: list[str] = []
+        provider_message_id: str | None = None
+        workflow_run_id: str | None = None
+        final_status = "succeeded"
+        started = False
+
+        try:
+            async for event in self.dify_client.stream_workflow(
+                inputs={input_variable: normalized_question},
+                user=self._build_dify_user(resolved_session_id),
+                response_mode="streaming",
+                trace_id=request_id if settings.DIFY_ENABLE_TRACE else None,
+            ):
+                if event.workflow_run_id:
+                    workflow_run_id = event.workflow_run_id
+                if event.task_id:
+                    provider_message_id = event.task_id
+
+                if event.event == "workflow_started":
+                    started = True
+                    yield {
+                        "event": "start",
+                        "data": {
+                            "session_id": resolved_session_id,
+                            "provider_message_id": provider_message_id,
+                            "workflow_run_id": workflow_run_id,
+                        },
+                    }
+                    continue
+
+                if event.event == "text_chunk" and event.text:
+                    if not started:
+                        started = True
+                        yield {
+                            "event": "start",
+                            "data": {
+                                "session_id": resolved_session_id,
+                                "provider_message_id": provider_message_id,
+                                "workflow_run_id": workflow_run_id,
+                            },
+                        }
+                    answer_parts.append(event.text)
+                    yield {"event": "delta", "data": {"text": event.text}}
+                    continue
+
+                if event.event == "workflow_finished":
+                    final_status = event.status or "succeeded"
+                    if event.outputs:
+                        answer = self._extract_answer(event.outputs)
+                        if answer and not answer_parts:
+                            answer_parts.append(answer)
+                    if event.error:
+                        raise DifyWorkflowExecutionError(
+                            "Dify workflow execution failed",
+                            details={"status": final_status},
+                            raw=event.raw,
+                        )
+
+            answer = "".join(answer_parts).strip()
+            payload = self._write_success_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                request_id=request_id,
+                answer=answer,
+                workflow_run_id=workflow_run_id,
+                task_id=provider_message_id,
+                status_value=final_status,
+            )
+            yield {
+                "event": "end",
+                "data": {
+                    "message_id": str(payload["id"]),
+                    "session_id": payload["session_id"],
+                    "status": payload["status"],
+                    "provider_message_id": provider_message_id,
+                    "workflow_run_id": workflow_run_id,
+                    "created_at": payload["created_at"].isoformat(),
+                },
+            }
+        except DifyConfigurationError:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_not_configured",
+                answer="Dify integration is not configured",
+            )
+            yield {"event": "error", "data": {"detail": "Chat integration is not configured"}}
+        except DifyTimeoutError:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_timeout",
+                answer="".join(answer_parts).strip() or "Dify request timed out",
+            )
+            yield {"event": "error", "data": {"detail": "Chat provider timed out"}}
+        except DifyBadRequestError:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_bad_request",
+                answer="".join(answer_parts).strip() or "Dify request rejected",
+            )
+            yield {"event": "error", "data": {"detail": "Chat provider rejected request"}}
+        except DifyAuthError:
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_auth_failed",
+                answer="".join(answer_parts).strip() or "Dify authentication failed",
+            )
+            yield {"event": "error", "data": {"detail": "Chat provider authentication failed"}}
+        except (DifyServiceUnavailableError, DifyWorkflowExecutionError):
+            self._write_failed_log(
+                db,
+                question=normalized_question,
+                session_id=resolved_session_id,
+                error_code="dify_request_failed",
+                answer="".join(answer_parts).strip() or "Dify request failed",
+            )
+            yield {"event": "error", "data": {"detail": "Chat provider request failed"}}
+
     def create_feedback(
         self,
         db: Session,
@@ -253,6 +348,87 @@ class ChatService:
             comment=comment,
             source=source,
         )
+
+    def _prepare_request(
+        self,
+        *,
+        question: str,
+        session_id: str | None,
+    ) -> tuple[str, str, str, str]:
+        normalized_question = question.strip()
+        resolved_session_id = session_id or f"session-{uuid4().hex[:12]}"
+        request_id = f"chat-{uuid4().hex[:12]}"
+
+        log_event(
+            logger,
+            logging.INFO,
+            "chat_request_received",
+            "started",
+            request_id=request_id,
+            session_id=resolved_session_id,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "dify_request_started",
+            "started",
+            request_id=request_id,
+            session_id=resolved_session_id,
+        )
+
+        input_variable = settings.DIFY_TEXT_INPUT_VARIABLE
+        if not input_variable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chat integration is not configured",
+            )
+        return normalized_question, resolved_session_id, request_id, input_variable
+
+    def _write_success_log(
+        self,
+        db: Session,
+        *,
+        question: str,
+        session_id: str,
+        request_id: str,
+        answer: str,
+        workflow_run_id: str | None,
+        task_id: str | None,
+        status_value: str,
+    ) -> dict:
+        payload = self.qa_log_service.create_log(
+            db,
+            question=question,
+            retrieved_context=None,
+            answer=answer,
+            session_id=session_id,
+            source="dify",
+            status=status_value,
+            provider_message_id=task_id or workflow_run_id,
+            error_code=None,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "dify_request_succeeded",
+            "success",
+            request_id=request_id,
+            session_id=payload["session_id"],
+            source="dify",
+            provider_message_id=task_id or workflow_run_id,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "qa_log_written",
+            "success",
+            request_id=request_id,
+            session_id=payload["session_id"],
+            qa_log_id=str(payload["id"]),
+            source=payload["source"],
+            qa_status=payload["status"],
+        )
+        return payload
 
     def _write_failed_log(
         self,
