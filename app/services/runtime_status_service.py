@@ -94,6 +94,9 @@ class RuntimeStatusService:
             "sqlite_ready": base["sqlite_ready"],
             "dify_configured": base["dify_configured"],
             "dify_reachable": base["dify_reachable"],
+            "dify_validation_ok": base["dify_validation_ok"],
+            "dify_file_input_enabled": base["dify_file_input_enabled"],
+            "dify_file_input_variable": base["dify_file_input_variable"],
             "graph_enabled": base["graph_enabled"],
             "graph_loaded": base["graph_loaded"],
             "graph_node_count": base["graph_node_count"],
@@ -163,6 +166,10 @@ class RuntimeStatusService:
             "dify_reachable": dify_status["reachable"],
             "dify_validation_ok": dify_status["ok"],
             "dify_validation_warnings": dify_status["warnings"],
+            "dify_file_input_enabled": dify_status["file_input_enabled"],
+            "dify_file_input_variable": dify_status["file_input_variable"],
+            "dify_file_input_variable_exists": dify_status["file_input_variable_exists"],
+            "dify_file_upload_limits": dify_status["file_limits"],
             "admin_auth_ready": admin_auth_ready,
             "admin_auth_configured": admin_auth_ready,
             "document_module_ready": document_module_ready,
@@ -190,20 +197,102 @@ class RuntimeStatusService:
         try:
             client = get_dify_client()
             if not client.is_enabled():
-                return {"reachable": False, "ok": False, "warnings": [], "parameters": {}}
+                return {
+                    "reachable": False,
+                    "ok": False,
+                    "warnings": [],
+                    "parameters": {},
+                    "file_input_enabled": False,
+                    "file_input_variable": settings.DIFY_FILE_INPUT_VARIABLE,
+                    "file_input_variable_exists": False,
+                    "file_limits": {},
+                }
             validation = await client.validate_configuration()
+            file_capabilities = RuntimeStatusService._extract_file_capabilities(validation.raw_parameters)
             return {
                 "reachable": validation.reachable,
                 "ok": validation.ok,
                 "warnings": validation.warnings,
                 "parameters": validation.raw_parameters,
+                "file_input_enabled": validation.file_upload_enabled,
+                "file_input_variable": settings.DIFY_FILE_INPUT_VARIABLE or file_capabilities["variable"],
+                "file_input_variable_exists": validation.file_input_variable_exists,
+                "file_limits": file_capabilities["limits"],
             }
         except DifyConfigurationError:
-            return {"reachable": False, "ok": False, "warnings": [], "parameters": {}}
+            return {
+                "reachable": False,
+                "ok": False,
+                "warnings": [],
+                "parameters": {},
+                "file_input_enabled": False,
+                "file_input_variable": settings.DIFY_FILE_INPUT_VARIABLE,
+                "file_input_variable_exists": False,
+                "file_limits": {},
+            }
         except DifyClientError as exc:
-            return {"reachable": False, "ok": False, "warnings": [str(exc)], "parameters": {}}
+            return {
+                "reachable": False,
+                "ok": False,
+                "warnings": [str(exc)],
+                "parameters": {},
+                "file_input_enabled": False,
+                "file_input_variable": settings.DIFY_FILE_INPUT_VARIABLE,
+                "file_input_variable_exists": False,
+                "file_limits": {},
+            }
         except Exception:
-            return {"reachable": False, "ok": False, "warnings": ["unexpected_dify_status_error"], "parameters": {}}
+            return {
+                "reachable": False,
+                "ok": False,
+                "warnings": ["unexpected_dify_status_error"],
+                "parameters": {},
+                "file_input_enabled": False,
+                "file_input_variable": settings.DIFY_FILE_INPUT_VARIABLE,
+                "file_input_variable_exists": False,
+                "file_limits": {},
+            }
+
+    @staticmethod
+    def _extract_file_capabilities(parameters: dict[str, Any]) -> dict[str, Any]:
+        files = parameters.get("file_upload") or parameters.get("files") or {}
+        features = parameters.get("features") or {}
+        feature_files = features.get("file_upload") if isinstance(features, dict) else {}
+        file_settings = files if isinstance(files, dict) else {}
+        if isinstance(feature_files, dict):
+            file_settings = {**feature_files, **file_settings}
+
+        variable = settings.DIFY_FILE_INPUT_VARIABLE
+        user_input_form = parameters.get("user_input_form") or []
+        if not variable:
+            variable = RuntimeStatusService._find_file_variable(user_input_form)
+
+        limits = {
+            "max_files": file_settings.get("number_limits") or file_settings.get("max_files"),
+            "max_file_size": file_settings.get("file_size_limit") or file_settings.get("max_file_size"),
+            "allowed_file_types": file_settings.get("allowed_file_extensions")
+            or file_settings.get("allowed_file_types")
+            or file_settings.get("allowed_extensions"),
+        }
+        return {"variable": variable, "limits": {k: v for k, v in limits.items() if v is not None}}
+
+    @staticmethod
+    def _find_file_variable(value: Any) -> str | None:
+        if isinstance(value, dict):
+            candidate_type = value.get("type") or value.get("input_type")
+            candidate_variable = value.get("variable") or value.get("name")
+            if isinstance(candidate_type, str) and "file" in candidate_type and isinstance(candidate_variable, str):
+                return candidate_variable
+            for nested in value.values():
+                found = RuntimeStatusService._find_file_variable(nested)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for item in value:
+                found = RuntimeStatusService._find_file_variable(item)
+                if found:
+                    return found
+        return None
 
 
 runtime_status_service = RuntimeStatusService()
