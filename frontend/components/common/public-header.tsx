@@ -13,7 +13,7 @@ export function PublicHeader() {
     <header className="border-b bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <div>
-          <Link href="/" className="text-lg font-semibold tracking-tight">
+          <Link href="/chat" className="text-lg font-semibold tracking-tight">
             {siteConfig.name}
           </Link>
           <p className="text-xs text-muted-foreground">{siteConfig.description}</p>
@@ -31,9 +31,6 @@ export function PublicHeader() {
               {item.label}
             </Link>
           ))}
-          <Link href="/admin/login" className="rounded-md border px-3 py-2 text-sm">
-            管理员入口
-          </Link>
         </nav>
       </div>
     </header>
