@@ -12,6 +12,12 @@ import { Table, TBody, TD, TH, THead } from "@/components/ui/table";
 import { getExtractionTask, listExtractionTasks } from "@/lib/api/graph-extraction";
 import { formatDateTime } from "@/lib/utils";
 
+function formatTaskProgress(completedChunks: number | null, totalChunks: number | null) {
+  const completed = completedChunks ?? 0;
+  const total = totalChunks ?? 0;
+  return `${completed}/${total}`;
+}
+
 export default function AdminGraphTasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const tasksQuery = useQuery({ queryKey: ["graph-extraction-tasks"], queryFn: () => listExtractionTasks(100, 0) });
@@ -40,6 +46,7 @@ export default function AdminGraphTasksPage() {
                   <tr>
                     <TH>ID</TH>
                     <TH>状态</TH>
+                    <TH>进度</TH>
                     <TH>开始时间</TH>
                     <TH>输出版本</TH>
                   </tr>
@@ -49,6 +56,7 @@ export default function AdminGraphTasksPage() {
                     <tr key={item.id} className="cursor-pointer" onClick={() => setSelectedTaskId(item.id)}>
                       <TD>{item.id.slice(0, 8)}</TD>
                       <TD><StatusBadge value={item.status} /></TD>
+                      <TD>{formatTaskProgress(item.graph_extraction_completed_chunks, item.graph_extraction_chunk_count)}</TD>
                       <TD>{formatDateTime(item.started_at ?? item.created_at)}</TD>
                       <TD>{item.output_graph_version ?? "无"}</TD>
                     </tr>
@@ -69,6 +77,7 @@ export default function AdminGraphTasksPage() {
                   <p>任务类型：{detailQuery.data.task_type ?? "未知"}</p>
                   <p>状态：{detailQuery.data.status}</p>
                   <p>操作人：{detailQuery.data.operator ?? "未知"}</p>
+                  <p>进度：{formatTaskProgress(detailQuery.data.graph_extraction_completed_chunks, detailQuery.data.graph_extraction_chunk_count)}</p>
                   <p>开始时间：{formatDateTime(detailQuery.data.started_at ?? detailQuery.data.created_at)}</p>
                   <p>结束时间：{formatDateTime(detailQuery.data.finished_at)}</p>
                   <p>输出版本：{detailQuery.data.output_graph_version ?? "无"}</p>

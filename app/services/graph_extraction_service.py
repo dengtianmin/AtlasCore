@@ -219,13 +219,13 @@ class GraphExtractionService:
 
     def list_tasks(self, db: Session, *, limit: int, offset: int) -> dict:
         items = self.task_repo.list_recent(db, limit=limit, offset=offset)
-        return {"items": [self._serialize_task(item) for item in items]}
+        return {"items": [self._serialize_task(db, item) for item in items]}
 
     def get_task(self, db: Session, *, task_id: UUID) -> dict:
         task = self.task_repo.get_by_id(db, task_id=task_id)
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction task not found")
-        return self._serialize_task(task)
+        return self._serialize_task(db, task)
 
     async def create_extraction_task(self, db: Session, *, document_ids: list[UUID], operator: str) -> dict:
         documents = self.document_repo.list_by_ids(db, document_ids=document_ids)
@@ -297,7 +297,7 @@ class GraphExtractionService:
                 output_graph_version=version,
                 document_count=len(documents),
             )
-            return self._serialize_task(task)
+            return self._serialize_task(db, task)
         except Exception as exc:
             db.rollback()
             task = self.task_repo.get_by_id(db, task_id=task.id) or task
@@ -925,7 +925,8 @@ class GraphExtractionService:
             "graph_extraction_last_error": document.graph_extraction_last_error,
         }
 
-    def _serialize_task(self, task: GraphExtractionTask) -> dict:
+    def _serialize_task(self, db: Session, task: GraphExtractionTask) -> dict:
+        task_progress = self._get_task_progress(db, task=task)
         return {
             "id": task.id,
             "task_type": task.task_type,
@@ -937,8 +938,21 @@ class GraphExtractionService:
             "result_summary": task.result_summary,
             "output_graph_version": task.output_graph_version,
             "operator": task.operator,
+            "graph_extraction_chunk_count": task_progress["chunk_count"],
+            "graph_extraction_completed_chunks": task_progress["completed_chunks"],
             "created_at": task.created_at,
             "updated_at": task.updated_at,
+        }
+
+    def _get_task_progress(self, db: Session, *, task: GraphExtractionTask) -> dict[str, int]:
+        try:
+            selected_document_ids = [UUID(value) for value in json.loads(task.selected_document_ids)]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            selected_document_ids = []
+        documents = self.document_repo.list_by_ids(db, document_ids=selected_document_ids)
+        return {
+            "chunk_count": sum(item.graph_extraction_chunk_count or 0 for item in documents),
+            "completed_chunks": sum(item.graph_extraction_completed_chunks or 0 for item in documents),
         }
 
     def _serialize_prompt_setting(self, setting: GraphPromptSetting) -> dict:

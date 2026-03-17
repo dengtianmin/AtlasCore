@@ -302,6 +302,8 @@ export interface ExtractionTask {
   result_summary: string | null;
   output_graph_version: string | null;
   operator: string | null;
+  graph_extraction_chunk_count: number | null;
+  graph_extraction_completed_chunks: number | null;
   created_at: string;
   updated_at: string | null;
 }

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import settings
 from app.db.session import get_session_factory, initialize_database, reset_db_state
 from app.graph.db import initialize_graph_database, reset_graph_db_state
+from app.models.graph_extraction_task import GraphExtractionTask
 from app.repositories.document_repo import DocumentRepository
 from app.services.graph_extraction_service import (
     DEFAULT_GRAPH_EXTRACTION_PROMPT,
@@ -400,6 +402,66 @@ def test_create_extraction_task_resumes_from_failed_chunk(monkeypatch, tmp_path)
         assert resumed.status == "applied_to_graph"
         assert resumed.graph_extraction_completed_chunks == len(chunks)
         assert resumed.graph_extraction_last_error is None
+    finally:
+        db.close()
+
+
+def test_list_tasks_includes_chunk_progress(monkeypatch, tmp_path):
+    service = _bootstrap(monkeypatch, tmp_path)
+    db = get_session_factory()()
+    repo = DocumentRepository()
+    try:
+        now = datetime.now(UTC)
+        first = repo.create(
+            db,
+            filename="doc1.md",
+            file_type="md",
+            source_type="upload",
+            status="extracting",
+            uploaded_at=now,
+            created_by=None,
+            local_path="/tmp/doc1.md",
+            source_uri="/tmp/doc1.md",
+            mime_type="text/markdown",
+            content_type="text/markdown",
+            file_size=10,
+            file_extension="md",
+            created_at=now,
+        )
+        second = repo.create(
+            db,
+            filename="doc2.md",
+            file_type="md",
+            source_type="upload",
+            status="extracting",
+            uploaded_at=now,
+            created_by=None,
+            local_path="/tmp/doc2.md",
+            source_uri="/tmp/doc2.md",
+            mime_type="text/markdown",
+            content_type="text/markdown",
+            file_size=10,
+            file_extension="md",
+            created_at=now,
+        )
+        first.graph_extraction_chunk_count = 5
+        first.graph_extraction_completed_chunks = 2
+        second.graph_extraction_chunk_count = 3
+        second.graph_extraction_completed_chunks = 1
+        task = GraphExtractionTask(
+            task_type="md_extraction",
+            status="extracting",
+            selected_document_ids=json.dumps([str(first.id), str(second.id)]),
+            started_at=now,
+            operator="admin",
+        )
+        service.task_repo.create(db, task=task)
+        db.commit()
+
+        payload = service.list_tasks(db, limit=20, offset=0)
+
+        assert payload["items"][0]["graph_extraction_chunk_count"] == 8
+        assert payload["items"][0]["graph_extraction_completed_chunks"] == 3
     finally:
         db.close()
 

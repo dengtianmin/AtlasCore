@@ -184,6 +184,8 @@ class ExtractionTaskResponse(BaseModel):
     result_summary: str | None = None
     output_graph_version: str | None = None
     operator: str | None = None
+    graph_extraction_chunk_count: int | None = None
+    graph_extraction_completed_chunks: int | None = None
     created_at: datetime
     updated_at: datetime | None = None
     filename: str | None = None
@@ -207,9 +209,6 @@ class ExtractionTaskResponse(BaseModel):
     invalidated_at: datetime | None = None
     is_active: bool | None = None
     extraction_task_id: UUID | None = None
-    graph_extraction_chunk_count: int | None = None
-    graph_extraction_completed_chunks: int | None = None
-    graph_extraction_last_error: str | None = None
 
 
 class ExtractionTaskListResponse(BaseModel):
