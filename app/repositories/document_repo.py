@@ -59,7 +59,7 @@ class DocumentRepository:
     def list_all(self, db: Session, *, limit: int = 50, offset: int = 0) -> list[Document]:
         stmt = (
             select(Document)
-            .order_by(Document.created_at.desc())
+            .order_by(Document.uploaded_at.desc(), Document.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -97,3 +97,67 @@ class DocumentRepository:
     def delete(self, db: Session, *, doc: Document) -> None:
         db.delete(doc)
         db.flush()
+
+    def mark_dify_syncing(self, db: Session, *, doc: Document, synced_at: datetime) -> Document:
+        doc.status = "syncing"
+        doc.dify_sync_status = "syncing"
+        doc.dify_error_code = None
+        doc.dify_error_message = None
+        doc.note = None
+        doc.last_sync_target = "dify"
+        doc.last_sync_status = "syncing"
+        doc.last_sync_at = synced_at
+        db.add(doc)
+        db.flush()
+        db.refresh(doc)
+        return doc
+
+    def mark_dify_synced(
+        self,
+        db: Session,
+        *,
+        doc: Document,
+        dify_upload_file_id: str,
+        dify_uploaded_at: datetime | None,
+        synced_at: datetime,
+        note: str,
+    ) -> Document:
+        doc.status = "synced"
+        doc.synced_to_dify = True
+        doc.dify_sync_status = "synced"
+        doc.dify_upload_file_id = dify_upload_file_id
+        doc.dify_uploaded_at = dify_uploaded_at
+        doc.dify_error_code = None
+        doc.dify_error_message = None
+        doc.note = note
+        doc.last_sync_target = "dify"
+        doc.last_sync_status = "synced"
+        doc.last_sync_at = synced_at
+        db.add(doc)
+        db.flush()
+        db.refresh(doc)
+        return doc
+
+    def mark_dify_failed(
+        self,
+        db: Session,
+        *,
+        doc: Document,
+        error_code: str | None,
+        error_message: str,
+        synced_at: datetime,
+        note: str,
+    ) -> Document:
+        doc.status = "failed"
+        doc.synced_to_dify = False
+        doc.dify_sync_status = "failed"
+        doc.dify_error_code = error_code
+        doc.dify_error_message = error_message
+        doc.note = note
+        doc.last_sync_target = "dify"
+        doc.last_sync_status = "failed"
+        doc.last_sync_at = synced_at
+        db.add(doc)
+        db.flush()
+        db.refresh(doc)
+        return doc

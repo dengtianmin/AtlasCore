@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from fastapi import HTTPException, UploadFile
 from app.admin.document_status import DocumentStatus
 from app.admin.storage import StoredDocument
 from app.core.config import settings
+from app.integrations.dify.exceptions import DifyFileTooLargeError, DifyUnsupportedFileTypeError
 from app.integrations.dify.schemas import DifyUploadedFile
 from app.services.admin_service import AdminDocumentService
 
@@ -138,6 +140,7 @@ def test_delete_document_success(monkeypatch):
     doc = _doc(DocumentStatus.UPLOADED.value)
 
     monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
+    monkeypatch.setattr(service.storage, "delete", lambda *_: None)
     deleted = {"ok": False}
 
     def fake_delete(*args, **kwargs):
@@ -173,9 +176,15 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
     service = AdminDocumentService()
     db = DummyDB()
     doc = _doc(DocumentStatus.UPLOADED.value)
-    updated = _doc(DocumentStatus.INDEXED.value)
+    updated = _doc(DocumentStatus.SYNCED.value)
+    updated.synced_to_dify = True
+    updated.dify_upload_file_id = "dify-file-1"
+    updated.dify_uploaded_at = datetime.now(UTC)
+    updated.dify_sync_status = "synced"
+    updated.note = "Dify file uploaded: dify-file-1"
 
     monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
+    monkeypatch.setattr(service, "_resolve_local_path", lambda *_: Path("/tmp/doc.txt"))
     async def fake_upload_file(*_args, **_kwargs):
         return DifyUploadedFile(
             file_id="dify-file-1",
@@ -188,11 +197,89 @@ def test_trigger_dify_index_updates_status_and_creates_record(monkeypatch):
 
     monkeypatch.setattr(service.dify_client, "upload_file", fake_upload_file)
 
-    monkeypatch.setattr(service.document_repo, "mark_synced", lambda *args, **kwargs: updated)
+    monkeypatch.setattr(service.document_repo, "mark_dify_syncing", lambda *args, **kwargs: doc)
+    monkeypatch.setattr(service.document_repo, "mark_dify_synced", lambda *args, **kwargs: updated)
 
     payload = asyncio.run(service.trigger_dify_index(db, doc_id=doc.id))
 
     assert payload["target_system"] == "dify"
-    assert payload["status"] == DocumentStatus.INDEXED.value
+    assert payload["status"] == DocumentStatus.SYNCED.value
     assert payload["message"] == "Dify file uploaded: dify-file-1"
+    assert db.commits == 1
+
+
+def test_trigger_dify_index_marks_failed_when_local_file_is_missing(monkeypatch):
+    service = AdminDocumentService()
+    db = DummyDB()
+    doc = _doc(DocumentStatus.UPLOADED.value)
+    failed = _doc(DocumentStatus.FAILED.value)
+    failed.dify_sync_status = "failed"
+    failed.dify_error_code = "local_file_missing"
+    failed.dify_error_message = "Local document file does not exist"
+    failed.note = "Local document file does not exist"
+
+    monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
+    monkeypatch.setattr(service.document_repo, "mark_dify_failed", lambda *args, **kwargs: failed)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(service.trigger_dify_index(db, doc_id=doc.id))
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Local document file does not exist"
+    assert db.commits == 1
+
+
+def test_trigger_dify_index_maps_file_too_large_error(monkeypatch):
+    service = AdminDocumentService()
+    db = DummyDB()
+    doc = _doc(DocumentStatus.UPLOADED.value)
+    failed = _doc(DocumentStatus.FAILED.value)
+    failed.dify_sync_status = "failed"
+    failed.dify_error_code = "file_too_large"
+    failed.dify_error_message = "Dify rejected the file as too large"
+    failed.note = "Dify rejected the file as too large"
+
+    monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
+    monkeypatch.setattr(service, "_resolve_local_path", lambda *_: Path("/tmp/doc.txt"))
+    monkeypatch.setattr(service.document_repo, "mark_dify_syncing", lambda *args, **kwargs: doc)
+    monkeypatch.setattr(service.document_repo, "mark_dify_failed", lambda *args, **kwargs: failed)
+
+    async def fake_upload_file(*_args, **_kwargs):
+        raise DifyFileTooLargeError("too large", error_code="file_too_large")
+
+    monkeypatch.setattr(service.dify_client, "upload_file", fake_upload_file)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(service.trigger_dify_index(db, doc_id=doc.id))
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Dify rejected the file as too large"
+    assert db.commits == 1
+
+
+def test_trigger_dify_index_maps_unsupported_file_type_error(monkeypatch):
+    service = AdminDocumentService()
+    db = DummyDB()
+    doc = _doc(DocumentStatus.UPLOADED.value)
+    failed = _doc(DocumentStatus.FAILED.value)
+    failed.dify_sync_status = "failed"
+    failed.dify_error_code = "unsupported_file_type"
+    failed.dify_error_message = "Dify does not support this file type"
+    failed.note = "Dify does not support this file type"
+
+    monkeypatch.setattr(service.document_repo, "get_by_id", lambda *_: doc)
+    monkeypatch.setattr(service, "_resolve_local_path", lambda *_: Path("/tmp/doc.txt"))
+    monkeypatch.setattr(service.document_repo, "mark_dify_syncing", lambda *args, **kwargs: doc)
+    monkeypatch.setattr(service.document_repo, "mark_dify_failed", lambda *args, **kwargs: failed)
+
+    async def fake_upload_file(*_args, **_kwargs):
+        raise DifyUnsupportedFileTypeError("bad type", error_code="unsupported_file_type")
+
+    monkeypatch.setattr(service.dify_client, "upload_file", fake_upload_file)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(service.trigger_dify_index(db, doc_id=doc.id))
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Dify does not support this file type"
     assert db.commits == 1

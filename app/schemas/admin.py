@@ -32,6 +32,8 @@ class DocumentUploadResponse(BaseModel):
     last_sync_target: str | None = None
     last_sync_status: str | None = None
     last_sync_at: datetime | None = None
+    dify_file_input_variable: str | None = None
+    dify_workflow_file_input: dict[str, Any] | None = None
 
 
 class DocumentListResponse(BaseModel):
