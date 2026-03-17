@@ -10,6 +10,7 @@ from app.admin.document_status import DocumentStatus
 class DocumentUploadResponse(BaseModel):
     id: UUID
     filename: str
+    file_type: str | None = None
     status: DocumentStatus
     source_type: str
     uploaded_at: datetime
@@ -32,6 +33,10 @@ class DocumentUploadResponse(BaseModel):
     last_sync_target: str | None = None
     last_sync_status: str | None = None
     last_sync_at: datetime | None = None
+    removed_from_graph_at: datetime | None = None
+    invalidated_at: datetime | None = None
+    is_active: bool = True
+    extraction_task_id: UUID | None = None
     dify_file_input_variable: str | None = None
     dify_workflow_file_input: dict[str, Any] | None = None
 
@@ -115,6 +120,115 @@ class GraphFileOperationResponse(BaseModel):
     current_version: str | None
     sqlite_path: str
     last_loaded_at: datetime | None
+
+
+class GraphFileRecordResponse(BaseModel):
+    id: UUID
+    filename: str
+    file_type: str
+    source_type: str
+    status: str
+    uploaded_at: datetime
+    synced_to_dify: bool
+    synced_to_graph: bool
+    note: str | None = None
+    local_path: str | None = None
+    source_uri: str | None = None
+    mime_type: str | None = None
+    content_type: str | None = None
+    file_size: int | None = None
+    file_extension: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime
+    last_sync_target: str | None = None
+    last_sync_status: str | None = None
+    last_sync_at: datetime | None = None
+    removed_from_graph_at: datetime | None = None
+    invalidated_at: datetime | None = None
+    is_active: bool
+    extraction_task_id: UUID | None = None
+
+
+class GraphFileListResponse(BaseModel):
+    items: list[GraphFileRecordResponse]
+
+
+class ExtractionTaskCreateRequest(BaseModel):
+    document_ids: list[UUID]
+
+
+class ExtractionTaskResponse(BaseModel):
+    id: UUID
+    task_type: str | None = None
+    status: str
+    selected_document_ids: list[UUID] | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    result_summary: str | None = None
+    output_graph_version: str | None = None
+    operator: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    filename: str | None = None
+    file_type: str | None = None
+    source_type: str | None = None
+    uploaded_at: datetime | None = None
+    synced_to_dify: bool | None = None
+    synced_to_graph: bool | None = None
+    note: str | None = None
+    local_path: str | None = None
+    source_uri: str | None = None
+    mime_type: str | None = None
+    content_type: str | None = None
+    file_size: int | None = None
+    file_extension: str | None = None
+    created_by: UUID | None = None
+    last_sync_target: str | None = None
+    last_sync_status: str | None = None
+    last_sync_at: datetime | None = None
+    removed_from_graph_at: datetime | None = None
+    invalidated_at: datetime | None = None
+    is_active: bool | None = None
+    extraction_task_id: UUID | None = None
+
+
+class ExtractionTaskListResponse(BaseModel):
+    items: list[ExtractionTaskResponse]
+
+
+class GraphPromptSettingResponse(BaseModel):
+    prompt_text: str
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+    is_active: bool
+
+
+class GraphPromptSettingUpdateRequest(BaseModel):
+    prompt_text: str = Field(min_length=1)
+
+
+class GraphModelSettingResponse(BaseModel):
+    provider: str
+    model_name: str
+    api_base_url: str | None = None
+    enabled: bool
+    is_active: bool
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+    has_api_key: bool
+
+
+class GraphModelSettingUpdateRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=64)
+    model_name: str = Field(min_length=1, max_length=255)
+    api_base_url: str | None = Field(default=None, max_length=1000)
+    api_key: str | None = Field(default=None, max_length=2000)
+    enabled: bool = True
+
+
+class GraphSqliteActivateResponse(GraphFileOperationResponse):
+    pass
 
 
 class DifyDebugRequest(BaseModel):

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.admin import router as admin_router
 from app.api.v1.admin_graph import router as admin_graph_router
+from app.api.v1.admin_graph_extraction import router as admin_graph_extraction_router
 from app.api.v1.admin_exports import router as admin_exports_router
 from app.api.v1.admin_logs import router as admin_logs_router
 from app.api.v1.admin_system import router as admin_system_router
@@ -21,6 +22,7 @@ v1_router.include_router(auth_router)
 v1_router.include_router(users_router)
 v1_router.include_router(admin_router)
 v1_router.include_router(admin_graph_router)
+v1_router.include_router(admin_graph_extraction_router)
 v1_router.include_router(admin_exports_router)
 v1_router.include_router(admin_logs_router)
 v1_router.include_router(admin_system_router)

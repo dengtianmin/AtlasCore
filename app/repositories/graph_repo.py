@@ -1,10 +1,12 @@
 from datetime import datetime
+import json
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.graph_edge import GraphEdge
 from app.models.graph_node import GraphNode
+from app.models.graph_node_source import GraphNodeSource
 from app.models.graph_sync_record import GraphSyncRecord
 from app.models.graph_version import GraphVersion
 
@@ -61,15 +63,21 @@ class GraphRepository:
         exported_at: datetime | None = None,
         imported_at: datetime | None = None,
         note: str | None = None,
+        version_type: str | None = None,
+        source_document_ids: list[str] | None = None,
+        operator: str | None = None,
     ) -> GraphVersion:
         db.execute(update(GraphVersion).values(is_current=False))
         record = GraphVersion(
             version=version,
+            version_type=version_type,
             build_time=build_time,
             source_batch=source_batch,
+            source_document_ids=json.dumps(source_document_ids or []),
             exported_at=exported_at,
             imported_at=imported_at,
             note=note,
+            operator=operator,
             is_current=True,
         )
         db.add(record)
@@ -100,3 +108,22 @@ class GraphRepository:
         db.flush()
         db.refresh(record)
         return record
+
+    def replace_graph_contents(
+        self,
+        db: Session,
+        *,
+        nodes: list[GraphNode],
+        node_sources: list[GraphNodeSource],
+        edges: list[GraphEdge],
+    ) -> None:
+        db.execute(delete(GraphNodeSource))
+        db.execute(delete(GraphEdge))
+        db.execute(delete(GraphNode))
+        for item in nodes:
+            db.add(item)
+        for item in node_sources:
+            db.add(item)
+        for item in edges:
+            db.add(item)
+        db.flush()

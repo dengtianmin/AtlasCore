@@ -13,6 +13,7 @@ class DocumentRepository:
         db: Session,
         *,
         filename: str,
+        file_type: str,
         source_type: str,
         status: str,
         uploaded_at: datetime,
@@ -31,6 +32,7 @@ class DocumentRepository:
     ) -> Document:
         doc = Document(
             filename=filename,
+            file_type=file_type,
             source_type=source_type,
             status=status,
             uploaded_at=uploaded_at,
@@ -65,6 +67,27 @@ class DocumentRepository:
         )
         return list(db.execute(stmt).scalars().all())
 
+    def list_by_file_type(
+        self,
+        db: Session,
+        *,
+        file_type: str,
+        limit: int = 50,
+        offset: int = 0,
+        active_only: bool = False,
+    ) -> list[Document]:
+        stmt = select(Document).where(Document.file_type == file_type)
+        if active_only:
+            stmt = stmt.where(Document.is_active.is_(True))
+        stmt = stmt.order_by(Document.uploaded_at.desc(), Document.created_at.desc()).limit(limit).offset(offset)
+        return list(db.execute(stmt).scalars().all())
+
+    def list_by_ids(self, db: Session, *, document_ids: list[UUID]) -> list[Document]:
+        if not document_ids:
+            return []
+        stmt = select(Document).where(Document.id.in_(document_ids))
+        return list(db.execute(stmt).scalars().all())
+
     def update_status(self, db: Session, *, doc: Document, status: str) -> Document:
         doc.status = status
         db.add(doc)
@@ -97,6 +120,12 @@ class DocumentRepository:
     def delete(self, db: Session, *, doc: Document) -> None:
         db.delete(doc)
         db.flush()
+
+    def save(self, db: Session, *, doc: Document) -> Document:
+        db.add(doc)
+        db.flush()
+        db.refresh(doc)
+        return doc
 
     def mark_dify_syncing(self, db: Session, *, doc: Document, synced_at: datetime) -> Document:
         doc.status = "syncing"

@@ -174,11 +174,25 @@ class GraphService:
         return payload
 
     def import_graph_sqlite(self, upload: UploadFile) -> dict:
+        return self._import_graph_sqlite_from_reader(
+            reader=upload.file,
+            filename=Path(upload.filename or "graph_import.db").name,
+            operator="system",
+        )
+
+    def import_graph_sqlite_file(self, *, file_path: Path, filename: str, operator: str) -> dict:
+        with file_path.open("rb") as handle:
+            return self._import_graph_sqlite_from_reader(reader=handle, filename=filename, operator=operator)
+
+    def get_graph_session(self):
+        return get_graph_session_factory()()
+
+    def _import_graph_sqlite_from_reader(self, *, reader, filename: str, operator: str) -> dict:
         import_dir = Path(settings.GRAPH_IMPORT_DIR).expanduser()
         import_dir.mkdir(parents=True, exist_ok=True)
         started_at = datetime.now(UTC)
         started = perf_counter()
-        upload_name = Path(upload.filename or "graph_import.db").name
+        upload_name = filename
         staged_path = import_dir / f"staged_{upload_name}"
         instance_path = settings.graph_instance_path
         instance_path.parent.mkdir(parents=True, exist_ok=True)
@@ -195,7 +209,7 @@ class GraphService:
             staged_path=str(staged_path),
         )
         with staged_path.open("wb") as staged_file:
-            shutil.copyfileobj(upload.file, staged_file)
+            shutil.copyfileobj(reader, staged_file)
 
         replaced = False
         try:
@@ -255,8 +269,10 @@ class GraphService:
                 self.repo.replace_current_version(
                     session,
                     version=version,
+                    version_type="sqlite_import",
                     imported_at=datetime.now(UTC),
                     note=f"Imported from {upload_name}",
+                    operator=operator,
                 )
                 session.commit()
             finally:
