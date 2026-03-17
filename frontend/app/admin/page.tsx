@@ -53,6 +53,18 @@ export default function AdminDashboardPage() {
               <p className="font-medium">文档管理</p>
               <p className="mt-2 leading-6 text-muted-foreground">上传、删除文档并触发同步。</p>
             </Link>
+            <Link href="/admin/graph/sqlite-files" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
+              <p className="font-medium">SQLite 文件</p>
+              <p className="mt-2 leading-6 text-muted-foreground">管理图谱快照，执行整库切换。</p>
+            </Link>
+            <Link href="/admin/graph/md-files" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
+              <p className="font-medium">Markdown 文件</p>
+              <p className="mt-2 leading-6 text-muted-foreground">登记 Markdown 源文件并发起图谱抽取。</p>
+            </Link>
+            <Link href="/admin/graph/tasks" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
+              <p className="font-medium">抽取任务</p>
+              <p className="mt-2 leading-6 text-muted-foreground">查看任务详情、输出图版本与失败原因。</p>
+            </Link>
             <Link href="/admin/dify" className="rounded-lg border bg-panel p-4 text-sm transition-colors hover:bg-accent">
               <p className="font-medium">Dify 调试</p>
               <p className="mt-2 leading-6 text-muted-foreground">临时提交 Base URL 与 API Key，查看参数校验和调试日志。</p>

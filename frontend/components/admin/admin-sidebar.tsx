@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutGrid, FileText, NotebookTabs, Download, Network, LogOut, FlaskConical } from "lucide-react";
+import { LayoutGrid, FileText, NotebookTabs, Download, Network, LogOut, FlaskConical, Database, Files, Settings2, Bot } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
@@ -12,6 +12,11 @@ import { cn } from "@/lib/utils";
 const iconMap = {
   "/admin": LayoutGrid,
   "/admin/documents": FileText,
+  "/admin/graph/sqlite-files": Database,
+  "/admin/graph/md-files": Files,
+  "/admin/graph/tasks": Network,
+  "/admin/graph/prompt": Settings2,
+  "/admin/graph/models": Bot,
   "/admin/dify": FlaskConical,
   "/admin/graph": Network,
   "/admin/logs": NotebookTabs,
@@ -31,7 +36,7 @@ export function AdminSidebar() {
       <nav className="mt-4 flex-1 space-y-1">
         {siteConfig.adminNav.map((item) => {
           const Icon = iconMap[item.href as keyof typeof iconMap] ?? LayoutGrid;
-          const active = pathname === item.href;
+          const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}

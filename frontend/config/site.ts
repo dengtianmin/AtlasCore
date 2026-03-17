@@ -4,6 +4,11 @@ export const siteConfig = {
   adminNav: [
     { href: "/admin", label: "总览" },
     { href: "/admin/documents", label: "文档管理" },
+    { href: "/admin/graph/sqlite-files", label: "SQLite 文件" },
+    { href: "/admin/graph/md-files", label: "Markdown 文件" },
+    { href: "/admin/graph/tasks", label: "抽取任务" },
+    { href: "/admin/graph/prompt", label: "提取 Prompt" },
+    { href: "/admin/graph/models", label: "提取模型" },
     { href: "/admin/dify", label: "Dify 调试" },
     { href: "/admin/graph", label: "图管理" },
     { href: "/admin/logs", label: "问答日志" },

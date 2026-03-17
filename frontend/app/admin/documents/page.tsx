@@ -68,7 +68,7 @@ export default function AdminDocumentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="文档管理" description="统一展示文档列表、上传入口、详情查看与图谱/Dify 同步动作。" />
+      <PageHeader title="文档管理" description="保留现有统一文档视图，同时新增了 Markdown 图谱抽取与 SQLite 图快照专用管理页。" />
 
       <Card>
         <CardHeader>

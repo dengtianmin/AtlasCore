@@ -189,6 +189,7 @@ export interface GraphReload {
 export interface DocumentRecord {
   id: string;
   filename: string;
+  file_type?: string | null;
   status: string;
   source_type: string;
   uploaded_at: string;
@@ -211,6 +212,10 @@ export interface DocumentRecord {
   last_sync_target: string | null;
   last_sync_status: string | null;
   last_sync_at: string | null;
+  removed_from_graph_at?: string | null;
+  invalidated_at?: string | null;
+  is_active?: boolean;
+  extraction_task_id?: string | null;
   dify_file_input_variable: string | null;
   dify_workflow_file_input: Record<string, unknown> | null;
 }
@@ -224,6 +229,74 @@ export interface SyncResponse {
   status: string;
   target_system: string;
   message: string;
+}
+
+export interface GraphManagedFile {
+  id: string;
+  filename: string;
+  file_type: string;
+  source_type: string;
+  status: string;
+  uploaded_at: string;
+  synced_to_dify: boolean;
+  synced_to_graph: boolean;
+  note: string | null;
+  local_path: string | null;
+  source_uri: string | null;
+  mime_type: string | null;
+  content_type: string | null;
+  file_size: number | null;
+  file_extension: string | null;
+  created_by: string | null;
+  created_at: string;
+  last_sync_target: string | null;
+  last_sync_status: string | null;
+  last_sync_at: string | null;
+  removed_from_graph_at: string | null;
+  invalidated_at: string | null;
+  is_active: boolean;
+  extraction_task_id: string | null;
+}
+
+export interface GraphManagedFileListResponse {
+  items: GraphManagedFile[];
+}
+
+export interface ExtractionTask {
+  id: string;
+  task_type: string | null;
+  status: string;
+  selected_document_ids: string[] | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+  result_summary: string | null;
+  output_graph_version: string | null;
+  operator: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ExtractionTaskListResponse {
+  items: ExtractionTask[];
+}
+
+export interface GraphPromptSetting {
+  prompt_text: string;
+  updated_at: string | null;
+  updated_by: string | null;
+  is_active: boolean;
+}
+
+export interface GraphModelSetting {
+  provider: string;
+  model_name: string;
+  api_base_url: string | null;
+  enabled: boolean;
+  is_active: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  has_api_key: boolean;
 }
 
 export interface ExportRecord {
