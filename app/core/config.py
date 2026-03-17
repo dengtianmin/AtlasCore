@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME: str | None = None
     GRAPH_EXTRACTION_MODEL_ENABLED: bool = False
     GRAPH_EXTRACTION_MODEL_THINKING_ENABLED: bool = True
+    GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0)
     DOCUMENT_LOCAL_STORAGE_DIR: str = "./data/uploads"
     DOCUMENT_MAX_FILE_SIZE_BYTES: int = Field(default=15 * 1024 * 1024, gt=0)
     DOCUMENT_ALLOWED_EXTENSIONS: str | None = None
@@ -441,6 +442,7 @@ class Settings(BaseSettings):
             "graph_extraction_model_provider": self.GRAPH_EXTRACTION_MODEL_PROVIDER,
             "graph_extraction_model_name": self.GRAPH_EXTRACTION_MODEL_NAME,
             "graph_extraction_model_thinking_enabled": self.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED,
+            "graph_extraction_model_timeout_seconds": self.GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS,
             "dify_configured": self.is_dify_configured(),
             "admin_auth_configured": self.is_admin_auth_configured(),
             "paths": path_summary,

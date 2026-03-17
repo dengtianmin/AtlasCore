@@ -64,6 +64,7 @@ def _isolate_settings_sources(monkeypatch):
         "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
         "GRAPH_EXTRACTION_MODEL_ENABLED",
         "GRAPH_EXTRACTION_MODEL_THINKING_ENABLED",
+        "GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS",
         "DOCUMENT_LOCAL_STORAGE_DIR",
         "DOCUMENT_MAX_FILE_SIZE_BYTES",
         "DOCUMENT_ALLOWED_EXTENSIONS",
@@ -120,6 +121,7 @@ def test_settings_defaults(monkeypatch):
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME is None
     assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is False
     assert settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED is True
+    assert settings.GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS == 120.0
     assert settings.PAGE_DEFAULTS == {}
     assert settings.FEATURE_FLAGS == {}
     assert settings.EXPORT_RULES == {}
@@ -175,6 +177,7 @@ def test_settings_reads_environment(monkeypatch):
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME", "graph-model-api-key")
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_ENABLED", "true")
     monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_THINKING_ENABLED", "false")
+    monkeypatch.setenv("GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS", "180")
 
     settings = Settings()
 
@@ -226,6 +229,7 @@ def test_settings_reads_environment(monkeypatch):
     assert settings.GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME == "graph-model-api-key"
     assert settings.GRAPH_EXTRACTION_MODEL_ENABLED is True
     assert settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED is False
+    assert settings.GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS == 180
 
 
 def test_settings_reads_yaml_config_file(monkeypatch, tmp_path):
@@ -332,6 +336,7 @@ def test_runtime_directories_are_created(monkeypatch, tmp_path):
     assert summary["paths"]["graph_instance_local_path"]["parent_exists"] is True
     assert summary["dify_configured"] is False
     assert summary["admin_auth_configured"] is False
+    assert summary["graph_extraction_model_timeout_seconds"] == 120.0
 
 
 def test_production_requires_jwt_secret(monkeypatch):

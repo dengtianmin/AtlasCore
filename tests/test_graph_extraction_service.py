@@ -251,6 +251,7 @@ def test_single_document_extraction_merges_chunk_results(monkeypatch, tmp_path):
 def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
     service = _bootstrap(monkeypatch, tmp_path)
     captured: dict = {}
+    monkeypatch.setattr(settings, "GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS", 180.0)
 
     class FakeResponse:
         def raise_for_status(self):
@@ -307,6 +308,7 @@ def test_call_model_disables_thinking_when_configured(monkeypatch, tmp_path):
 
     assert content == "{\"nodes\": [], \"edges\": []}"
     assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    assert captured["timeout"] == 180.0
     assert captured["trust_env"] is False
     assert captured["json"]["model"] == "GLM-5"
     assert captured["json"]["thinking"] == {"type": "disabled"}
