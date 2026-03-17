@@ -13,6 +13,7 @@ class Document(Base):
 
     id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(32), nullable=False, default="generic")
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -30,6 +31,10 @@ class Document(Base):
     dify_sync_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     dify_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     dify_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extraction_task_id: Mapped[UUID | None] = mapped_column(GUID(), nullable=True)
+    removed_from_graph_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_by: Mapped[UUID | None] = mapped_column(
         GUID(), ForeignKey("admin_accounts.id", ondelete="SET NULL"), nullable=True
     )

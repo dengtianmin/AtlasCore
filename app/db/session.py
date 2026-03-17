@@ -34,8 +34,81 @@ def reset_db_state() -> None:
     get_engine.cache_clear()
 
 
+def _sqlite_table_columns(connection, table_name: str) -> set[str]:
+    rows = connection.exec_driver_sql(f"PRAGMA table_info('{table_name}')").fetchall()
+    return {str(row[1]) for row in rows}
+
+
+def _ensure_sqlite_schema_alignment(engine: Engine) -> None:
+    if engine.dialect.name != "sqlite":
+        return
+
+    additive_columns: dict[str, list[str]] = {
+        "qa_logs": [
+            "ALTER TABLE qa_logs ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'succeeded'",
+            "ALTER TABLE qa_logs ADD COLUMN provider_message_id VARCHAR(128)",
+            "ALTER TABLE qa_logs ADD COLUMN error_code VARCHAR(64)",
+        ],
+        "documents": [
+            "ALTER TABLE documents ADD COLUMN file_type VARCHAR(32) NOT NULL DEFAULT 'generic'",
+            "ALTER TABLE documents ADD COLUMN created_at DATETIME",
+            "ALTER TABLE documents ADD COLUMN last_sync_target VARCHAR(32)",
+            "ALTER TABLE documents ADD COLUMN last_sync_status VARCHAR(32)",
+            "ALTER TABLE documents ADD COLUMN last_sync_at DATETIME",
+            "ALTER TABLE documents ADD COLUMN local_path TEXT",
+            "ALTER TABLE documents ADD COLUMN mime_type VARCHAR(120)",
+            "ALTER TABLE documents ADD COLUMN file_extension VARCHAR(32)",
+            "ALTER TABLE documents ADD COLUMN dify_upload_file_id VARCHAR(128)",
+            "ALTER TABLE documents ADD COLUMN dify_uploaded_at DATETIME",
+            "ALTER TABLE documents ADD COLUMN dify_sync_status VARCHAR(32)",
+            "ALTER TABLE documents ADD COLUMN dify_error_code VARCHAR(64)",
+            "ALTER TABLE documents ADD COLUMN dify_error_message TEXT",
+            "ALTER TABLE documents ADD COLUMN extraction_task_id VARCHAR(36)",
+            "ALTER TABLE documents ADD COLUMN removed_from_graph_at DATETIME",
+            "ALTER TABLE documents ADD COLUMN invalidated_at DATETIME",
+            "ALTER TABLE documents ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1",
+        ],
+    }
+
+    with engine.begin() as connection:
+        for table_name, statements in additive_columns.items():
+            existing_columns = _sqlite_table_columns(connection, table_name)
+            if not existing_columns:
+                continue
+
+            for statement in statements:
+                column_name = statement.split(" ADD COLUMN ", 1)[1].split(" ", 1)[0]
+                if column_name not in existing_columns:
+                    connection.exec_driver_sql(statement)
+                    existing_columns.add(column_name)
+
+        document_columns = _sqlite_table_columns(connection, "documents")
+        if "file_type" in document_columns:
+            connection.exec_driver_sql(
+                """
+                UPDATE documents
+                SET file_type = CASE
+                    WHEN LOWER(COALESCE(file_extension, '')) IN ('md', 'markdown') THEN 'md'
+                    WHEN LOWER(COALESCE(file_extension, '')) IN ('db', 'sqlite', 'sqlite3') THEN 'sqlite'
+                    ELSE COALESCE(file_type, 'generic')
+                END
+                WHERE file_type IS NULL OR file_type = '' OR file_type = 'generic'
+                """
+            )
+        if "created_at" in document_columns:
+            connection.exec_driver_sql(
+                """
+                UPDATE documents
+                SET created_at = COALESCE(created_at, uploaded_at, CURRENT_TIMESTAMP)
+                WHERE created_at IS NULL
+                """
+            )
+
+
 def initialize_database() -> None:
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_schema_alignment(engine)
 
 
 def get_db_session() -> Generator[Session, None, None]:
