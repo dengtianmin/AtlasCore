@@ -17,7 +17,7 @@ export function ChatInput({
   onSubmit,
   isPending
 }: {
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string) => Promise<boolean> | boolean;
   isPending: boolean;
 }) {
   const form = useForm<FormValues>({
@@ -30,9 +30,11 @@ export function ChatInput({
   return (
     <form
       className="space-y-3"
-      onSubmit={form.handleSubmit((values) => {
-        onSubmit(values.question);
-        form.reset();
+      onSubmit={form.handleSubmit(async (values) => {
+        const submitted = await onSubmit(values.question);
+        if (submitted) {
+          form.reset();
+        }
       })}
     >
       <Textarea placeholder="输入你的问题，系统会通过 AtlasCore 统一聊天接口处理。" {...form.register("question")} />

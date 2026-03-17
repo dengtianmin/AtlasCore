@@ -19,6 +19,7 @@ class ChatMessageResponse(BaseModel):
     retrieved_context: str | None = None
     status: str
     provider_message_id: str | None = None
+    workflow_run_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 

@@ -20,14 +20,57 @@ export default function ChatPage() {
 
   const chatMutation = useMutation({
     mutationFn: (question: string) => sendChatMessage({ question, session_id: sessionId }),
-    onSuccess: (response, question) => {
+    onMutate: (question) => {
+      const createdAt = new Date().toISOString();
+      const userMessageId = `user-${crypto.randomUUID()}`;
+      const assistantMessageId = `pending-${crypto.randomUUID()}`;
+
+      setMessages((current) => [
+        ...current,
+        { id: userMessageId, role: "user", content: question, createdAt },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "AtlasCore 正在通过后端调用 Dify，请稍候...",
+          createdAt,
+          source: "atlascore",
+          status: "processing"
+        }
+      ]);
+
+      return { assistantMessageId };
+    },
+    onSuccess: (response, _question, context) => {
       setSessionId(response.session_id);
       setLastAssistantMessageId(response.message_id);
       setMessages((current) => [
-        ...current,
-        { id: `user-${crypto.randomUUID()}`, role: "user", content: question, createdAt: response.created_at },
-        { id: response.message_id, role: "assistant", content: response.answer, createdAt: response.created_at }
+        ...current.filter((message) => message.id !== context?.assistantMessageId),
+        {
+          id: response.message_id,
+          role: "assistant",
+          content: response.answer,
+          createdAt: response.created_at,
+          source: response.source,
+          status: response.status,
+          providerMessageId: response.provider_message_id,
+          workflowRunId: response.workflow_run_id
+        }
       ]);
+    },
+    onError: (error, _question, context) => {
+      setLastAssistantMessageId(null);
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === context?.assistantMessageId
+            ? {
+                ...message,
+                content: `请求失败：${(error as Error).message}`,
+                status: "failed",
+                source: "atlascore"
+              }
+            : message
+        )
+      );
     }
   });
 
@@ -74,7 +117,17 @@ export default function ChatPage() {
                 <CardTitle>输入与反馈</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <ChatInput isPending={chatMutation.isPending} onSubmit={(value) => chatMutation.mutate(value)} />
+                <ChatInput
+                  isPending={chatMutation.isPending}
+                  onSubmit={async (value) => {
+                    try {
+                      await chatMutation.mutateAsync(value);
+                      return true;
+                    } catch {
+                      return false;
+                    }
+                  }}
+                />
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-panel p-4">
                   <div>
                     <p className="text-sm font-medium">结果反馈</p>

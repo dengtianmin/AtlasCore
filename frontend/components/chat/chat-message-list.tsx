@@ -7,6 +7,10 @@ export type ChatTimelineMessage = {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  source?: string;
+  status?: string;
+  providerMessageId?: string | null;
+  workflowRunId?: string | null;
 };
 
 export function ChatMessageList({ items }: { items: ChatTimelineMessage[] }) {
@@ -17,7 +21,16 @@ export function ChatMessageList({ items }: { items: ChatTimelineMessage[] }) {
   return (
     <div className="space-y-4">
       {items.map((item) => (
-        <ChatMessageCard key={item.id} role={item.role} content={item.content} meta={item.createdAt} />
+        <ChatMessageCard
+          key={item.id}
+          role={item.role}
+          content={item.content}
+          meta={item.createdAt}
+          source={item.source}
+          status={item.status}
+          providerMessageId={item.providerMessageId}
+          workflowRunId={item.workflowRunId}
+        />
       ))}
     </div>
   );

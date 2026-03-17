@@ -77,6 +77,7 @@ def test_chat_message_and_feedback_flow(monkeypatch, tmp_path):
         assert message.sources == []
         assert message.retrieved_context is None
         assert message.provider_message_id == "task-123"
+        assert message.workflow_run_id == "run-123"
         assert message.status == "succeeded"
 
         stored = QuestionAnswerLogService().get_log(db, record_id=message.message_id)

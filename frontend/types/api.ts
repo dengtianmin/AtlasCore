@@ -87,6 +87,7 @@ export interface ChatResponse {
   retrieved_context?: string | null;
   status: string;
   provider_message_id?: string | null;
+  workflow_run_id?: string | null;
   metadata?: Record<string, unknown>;
   created_at: string;
 }
@@ -194,14 +195,24 @@ export interface DocumentRecord {
   synced_to_dify: boolean;
   synced_to_graph: boolean;
   note: string | null;
+  local_path: string | null;
   source_uri: string | null;
+  mime_type: string | null;
   content_type: string | null;
   file_size: number | null;
+  file_extension: string | null;
+  dify_upload_file_id: string | null;
+  dify_uploaded_at: string | null;
+  dify_sync_status: string | null;
+  dify_error_code: string | null;
+  dify_error_message: string | null;
   created_by: string | null;
   created_at: string;
   last_sync_target: string | null;
   last_sync_status: string | null;
   last_sync_at: string | null;
+  dify_file_input_variable: string | null;
+  dify_workflow_file_input: Record<string, unknown> | null;
 }
 
 export interface DocumentListResponse {

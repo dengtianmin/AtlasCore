@@ -224,6 +224,7 @@ class ChatService:
             "retrieved_context": None,
             "status": payload["status"],
             "provider_message_id": workflow_result.task_id or workflow_result.workflow_run_id,
+            "workflow_run_id": workflow_result.workflow_run_id,
             "metadata": {
                 "workflow_run_id": workflow_result.workflow_run_id,
                 "task_id": workflow_result.task_id,
