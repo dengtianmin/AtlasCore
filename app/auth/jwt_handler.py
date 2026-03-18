@@ -24,16 +24,34 @@ def _resolve_jwt_secret() -> str:
     raise TokenDecodeError("JWT secret is not configured")
 
 
-def create_access_token(*, subject: str, username: str, roles: list[str], expires_minutes: int = DEFAULT_EXPIRES_MINUTES) -> tuple[str, int]:
+def create_access_token(
+    *,
+    subject: str,
+    username: str = "",
+    roles: list[str],
+    role: str,
+    scope: str,
+    token_type: str,
+    student_id: str | None = None,
+    name: str | None = None,
+    expires_minutes: int = DEFAULT_EXPIRES_MINUTES,
+) -> tuple[str, int]:
     expire_at = datetime.now(UTC) + timedelta(minutes=expires_minutes)
     payload: dict[str, Any] = {
         "sub": subject,
         "username": username,
         "roles": roles,
+        "role": role,
+        "scope": scope,
+        "token_type": token_type,
         "exp": expire_at,
         "iat": datetime.now(UTC),
         "iss": "atlascore-api",
     }
+    if student_id:
+        payload["student_id"] = student_id
+    if name:
+        payload["name"] = name
     token = jwt.encode(payload, _resolve_jwt_secret(), algorithm=JWT_ALGORITHM)
     return token, expires_minutes * 60
 
@@ -46,4 +64,6 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
     if "sub" not in payload:
         raise TokenDecodeError("Token missing subject")
+    if "scope" not in payload or "token_type" not in payload:
+        raise TokenDecodeError("Token missing scope information")
     return payload

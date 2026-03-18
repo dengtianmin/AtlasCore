@@ -48,6 +48,12 @@ def _ensure_sqlite_schema_alignment(engine: Engine) -> None:
             "ALTER TABLE qa_logs ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'succeeded'",
             "ALTER TABLE qa_logs ADD COLUMN provider_message_id VARCHAR(128)",
             "ALTER TABLE qa_logs ADD COLUMN error_code VARCHAR(64)",
+            "ALTER TABLE qa_logs ADD COLUMN user_id VARCHAR(36)",
+            "ALTER TABLE qa_logs ADD COLUMN student_id_snapshot VARCHAR(10)",
+            "ALTER TABLE qa_logs ADD COLUMN name_snapshot VARCHAR(50)",
+        ],
+        "users": [
+            "ALTER TABLE users ADD COLUMN last_login_at DATETIME",
         ],
         "documents": [
             "ALTER TABLE documents ADD COLUMN file_type VARCHAR(32) NOT NULL DEFAULT 'generic'",

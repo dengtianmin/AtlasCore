@@ -12,6 +12,7 @@ from app.models.graph_sync_record import GraphSyncRecord
 from app.models.graph_version import GraphVersion
 from app.models.qa_log import QuestionAnswerLog
 from app.models.review_rubric_setting import ReviewRubricSetting
+from app.models.user import User
 
 __all__ = [
     "AdminAccount",
@@ -28,4 +29,5 @@ __all__ = [
     "GraphPromptSetting",
     "GraphModelSetting",
     "ReviewRubricSetting",
+    "User",
 ]

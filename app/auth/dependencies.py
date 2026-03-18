@@ -9,8 +9,10 @@ from app.core.logging import get_logger, log_event
 from app.auth.identity import LocalJwtIdentityProvider, TokenIdentityProvider
 from app.auth.jwt_handler import TokenDecodeError
 from app.auth.principal import Principal
+from app.auth.rbac import ROLE_ADMIN, ROLE_USER
 from app.db.session import get_db_session
 from app.repositories.admin_account_repo import AdminAccountRepository
+from app.repositories.user_repo import UserRepository
 
 bearer_scheme = HTTPBearer(auto_error=True)
 logger = get_logger(__name__)
@@ -49,7 +51,12 @@ def get_current_principal(
     return Principal(
         user_id=str(payload["sub"]),
         username=str(payload.get("username", "")),
+        student_id=str(payload["student_id"]) if payload.get("student_id") else None,
+        name=str(payload["name"]) if payload.get("name") else None,
         roles=[str(role) for role in roles],
+        role=str(payload.get("role") or (roles[0] if roles else "")),
+        scope=str(payload.get("scope") or ""),
+        token_type=str(payload.get("token_type") or ""),
     )
 
 
@@ -73,7 +80,9 @@ def require_roles(*required_roles: str):
 def get_current_active_principal(
     principal: Annotated[Principal, Depends(get_current_principal)],
 ) -> Principal:
-    # Minimal check against local user table. Safe to keep optional and swappable.
+    if principal.scope != ROLE_ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin token required")
+
     db = _get_db_or_503()
     try:
         admin_repo = AdminAccountRepository()
@@ -98,8 +107,37 @@ def get_current_active_principal(
                 user_id=principal.user_id,
             )
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin is inactive")
-        principal.roles = ["admin"]
+        principal.roles = [ROLE_ADMIN]
+        principal.role = ROLE_ADMIN
+        principal.scope = ROLE_ADMIN
+        principal.token_type = "admin_access"
         principal.username = admin.username
+        return principal
+    finally:
+        db.close()
+
+
+def get_current_active_user_principal(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+) -> Principal:
+    if principal.scope != ROLE_USER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User token required")
+
+    db = _get_db_or_503()
+    try:
+        user_repo = UserRepository()
+        user = user_repo.get_by_id(db, UUID(principal.user_id))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        principal.roles = [ROLE_USER]
+        principal.role = ROLE_USER
+        principal.scope = ROLE_USER
+        principal.token_type = "user_access"
+        principal.student_id = user.student_id
+        principal.name = user.name
+        principal.username = user.student_id
         return principal
     finally:
         db.close()

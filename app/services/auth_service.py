@@ -24,6 +24,9 @@ class AuthService:
             subject=str(admin.id),
             username=admin.username,
             roles=[ROLE_ADMIN],
+            role=ROLE_ADMIN,
+            scope=ROLE_ADMIN,
+            token_type="admin_access",
         )
         return TokenResponse(access_token=token, expires_in=expires_in)
 

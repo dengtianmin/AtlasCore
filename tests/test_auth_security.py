@@ -21,12 +21,22 @@ def test_create_and_decode_access_token(monkeypatch):
     monkeypatch.setattr(settings, "APP_ENV", "test")
 
     user_id = str(uuid4())
-    token, expires_in = create_access_token(subject=user_id, username="admin-user", roles=["admin"])
+    token, expires_in = create_access_token(
+        subject=user_id,
+        username="admin-user",
+        roles=["admin"],
+        role="admin",
+        scope="admin",
+        token_type="admin_access",
+    )
 
     payload = decode_access_token(token)
     assert payload["sub"] == user_id
     assert payload["username"] == "admin-user"
     assert payload["roles"] == ["admin"]
+    assert payload["role"] == "admin"
+    assert payload["scope"] == "admin"
+    assert payload["token_type"] == "admin_access"
     assert payload["iss"] == "atlascore-api"
     assert expires_in == 3600
 
@@ -45,7 +55,14 @@ def test_production_without_secret_rejected(monkeypatch):
     monkeypatch.setattr(settings, "APP_ENV", "production")
 
     with pytest.raises(TokenDecodeError, match="JWT secret is not configured"):
-        create_access_token(subject="abc", username="admin-user", roles=["admin"])
+        create_access_token(
+            subject="abc",
+            username="admin-user",
+            roles=["admin"],
+            role="admin",
+            scope="admin",
+            token_type="admin_access",
+        )
 
 
 def test_test_environment_without_secret_rejected(monkeypatch):
@@ -54,4 +71,11 @@ def test_test_environment_without_secret_rejected(monkeypatch):
     monkeypatch.setattr(settings, "APP_ENV", "test")
 
     with pytest.raises(TokenDecodeError, match="JWT secret is not configured"):
-        create_access_token(subject="abc", username="admin-user", roles=["admin"])
+        create_access_token(
+            subject="abc",
+            username="admin-user",
+            roles=["admin"],
+            role="admin",
+            scope="admin",
+            token_type="admin_access",
+        )
