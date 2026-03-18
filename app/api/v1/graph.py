@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Query
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Query
+
+from app.auth.dependencies import get_current_active_user_principal
+from app.auth.principal import Principal
 from app.core.config import settings
 from app.schemas.graph import (
     GraphNodeListResponse,
@@ -16,12 +20,15 @@ service = GraphService()
 
 
 @router.get("/summary", response_model=GraphSummaryResponse)
-def graph_summary() -> GraphSummaryResponse:
+def graph_summary(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
+) -> GraphSummaryResponse:
     return GraphSummaryResponse(**service.get_summary())
 
 
 @router.get("/overview", response_model=GraphOverviewResponse)
 def graph_overview(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
     limit: int = Query(default=settings.GRAPH_DEFAULT_LIMIT, ge=1, le=1000),
 ) -> GraphOverviewResponse:
     return GraphOverviewResponse(**service.get_overview(limit=limit))
@@ -29,6 +36,7 @@ def graph_overview(
 
 @router.get("/nodes", response_model=GraphNodeListResponse)
 def list_graph_nodes(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
     limit: int = Query(default=settings.GRAPH_DEFAULT_LIMIT, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     node_type: str | None = Query(default=None),
@@ -38,12 +46,16 @@ def list_graph_nodes(
 
 
 @router.get("/nodes/{node_id}", response_model=NodeDetailsResponse)
-def node_details(node_id: str) -> NodeDetailsResponse:
+def node_details(
+    node_id: str,
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
+) -> NodeDetailsResponse:
     return NodeDetailsResponse(**service.get_node_detail(node_id=node_id))
 
 
 @router.get("/nodes/{node_id}/neighbors", response_model=NodeNeighborsResponse)
 def node_neighbors(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
     node_id: str,
     limit: int = Query(default=settings.GRAPH_MAX_NEIGHBORS, ge=1, le=5000),
 ) -> NodeNeighborsResponse:
@@ -52,6 +64,7 @@ def node_neighbors(
 
 @router.get("/subgraph/{node_id}", response_model=NodeHopsResponse)
 def node_subgraph(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
     node_id: str,
     depth: int = Query(default=1, ge=1, le=3),
     limit: int = Query(default=200, ge=1, le=2000),
@@ -61,6 +74,7 @@ def node_subgraph(
 
 @router.get("/nodes/{node_id}/hops", response_model=NodeHopsResponse)
 def node_hops(
+    _: Annotated[Principal, Depends(get_current_active_user_principal)],
     node_id: str,
     depth: int = Query(default=1, ge=1, le=3),
     limit: int = Query(default=200, ge=1, le=2000),

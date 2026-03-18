@@ -16,6 +16,19 @@ def _admin() -> Principal:
     return Principal(user_id="00000000-0000-0000-0000-000000000001", username="admin", roles=["admin"])
 
 
+def _user() -> Principal:
+    return Principal(
+        user_id="11111111-1111-1111-1111-111111111111",
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+
 async def _run_lifespan() -> None:
     from fastapi import FastAPI
 
@@ -94,7 +107,7 @@ def test_evaluate_review_returns_score_and_reason(monkeypatch, tmp_path):
     monkeypatch.setattr(review_service, "_call_model", fake_call_model)
 
     with get_session_factory()() as db:
-        payload = asyncio.run(evaluate_review(ReviewEvaluationRequest(answer_text="答案内容"), db=db))
+        payload = asyncio.run(evaluate_review(ReviewEvaluationRequest(answer_text="答案内容"), _=_user(), db=db))
 
     assert payload.score == 86
     assert "论点基本准确" in payload.reason

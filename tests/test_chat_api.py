@@ -4,6 +4,7 @@ import json
 from fastapi import HTTPException
 
 from app.api.v1.chat import send_message, service as chat_router_service, stream_message, submit_feedback
+from app.auth.principal import Principal
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
@@ -92,12 +93,25 @@ def _bootstrap_runtime(monkeypatch, tmp_path) -> None:
     asyncio.run(_run_lifespan())
 
 
+def _user() -> Principal:
+    return Principal(
+        user_id="11111111-1111-1111-1111-111111111111",
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+
 def test_chat_message_and_feedback_flow(monkeypatch, tmp_path):
     _bootstrap_runtime(monkeypatch, tmp_path)
     monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient(mode="success"))
     db = get_session_factory()()
     try:
-        message = asyncio.run(send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id=None), db=db))
+        message = asyncio.run(send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id=None), principal=_user(), db=db))
         assert message.source == "dify"
         assert message.session_id.startswith("session-")
         assert message.answer == "Dify answer: AtlasCore 是什么？"
@@ -109,6 +123,9 @@ def test_chat_message_and_feedback_flow(monkeypatch, tmp_path):
 
         stored = QuestionAnswerLogService().get_log(db, record_id=message.message_id)
         assert stored is not None
+        assert str(stored["user_id"]) == _user().user_id
+        assert stored["student_id_snapshot"] == "2025000001"
+        assert stored["name_snapshot"] == "张三"
         assert stored["retrieved_context"] is None
         assert stored["provider_message_id"] == "task-123"
         assert stored["status"] == "succeeded"
@@ -116,6 +133,7 @@ def test_chat_message_and_feedback_flow(monkeypatch, tmp_path):
         feedback = submit_feedback(
             message.message_id,
             ChatFeedbackRequest(rating=5, liked=True, comment="有帮助", source="web"),
+            _=_user(),
             db=db,
         )
         assert feedback.qa_log_id == message.message_id
@@ -131,7 +149,7 @@ def test_chat_message_returns_controlled_error_when_dify_not_configured(monkeypa
     db = get_session_factory()()
     try:
         try:
-            asyncio.run(send_message(ChatMessageRequest(question="配置缺失怎么办？", session_id="session-a"), db=db))
+            asyncio.run(send_message(ChatMessageRequest(question="配置缺失怎么办？", session_id="session-a"), principal=_user(), db=db))
         except HTTPException as exc:
             assert exc.status_code == 503
             assert exc.detail == "Chat integration is not configured"
@@ -151,7 +169,7 @@ def test_chat_message_returns_controlled_error_when_dify_times_out(monkeypatch, 
     db = get_session_factory()()
     try:
         try:
-            asyncio.run(send_message(ChatMessageRequest(question="超时测试", session_id="session-b"), db=db))
+            asyncio.run(send_message(ChatMessageRequest(question="超时测试", session_id="session-b"), principal=_user(), db=db))
         except HTTPException as exc:
             assert exc.status_code == 504
             assert exc.detail == "Chat provider timed out"
@@ -167,7 +185,7 @@ def test_chat_message_returns_controlled_error_when_dify_fails(monkeypatch, tmp_
     db = get_session_factory()()
     try:
         try:
-            asyncio.run(send_message(ChatMessageRequest(question="失败测试", session_id="session-c"), db=db))
+            asyncio.run(send_message(ChatMessageRequest(question="失败测试", session_id="session-c"), principal=_user(), db=db))
         except HTTPException as exc:
             assert exc.status_code == 502
             assert exc.detail == "Chat provider request failed"
@@ -195,7 +213,7 @@ def test_chat_message_stream_flow(monkeypatch, tmp_path):
     monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient(mode="success"))
     db = get_session_factory()()
     try:
-        response = asyncio.run(stream_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id=None), db=db))
+        response = asyncio.run(stream_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id=None), principal=_user(), db=db))
         assert response.media_type == "text/event-stream"
 
         events = asyncio.run(_consume_stream(response))

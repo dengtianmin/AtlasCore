@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.auth.principal import Principal
 from app.core.logging import get_logger, log_event
 from app.integrations.dify import (
     DifyAuthError,
@@ -37,6 +38,7 @@ class ChatService:
         *,
         question: str,
         session_id: str | None,
+        principal: Principal,
     ) -> dict:
         normalized_question = question.strip()
         normalized_question, resolved_session_id, request_id, input_variable = self._prepare_request(
@@ -47,7 +49,7 @@ class ChatService:
         try:
             workflow_result = await self.dify_client.run_workflow(
                 inputs={input_variable: normalized_question},
-                user=self._build_dify_user(resolved_session_id),
+                user=self._build_dify_user(principal, resolved_session_id),
                 response_mode=settings.DIFY_RESPONSE_MODE,
                 trace_id=request_id if settings.DIFY_ENABLE_TRACE else None,
             )
@@ -58,6 +60,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_not_configured",
                 answer="Dify integration is not configured",
+                principal=principal,
             )
             log_event(
                 logger,
@@ -80,6 +83,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_timeout",
                 answer="Dify request timed out",
+                principal=principal,
             )
             log_event(
                 logger,
@@ -102,6 +106,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_bad_request",
                 answer="Dify request rejected",
+                principal=principal,
             )
             log_event(
                 logger,
@@ -124,6 +129,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_auth_failed",
                 answer="Dify authentication failed",
+                principal=principal,
             )
             log_event(
                 logger,
@@ -146,6 +152,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_request_failed",
                 answer="Dify request failed",
+                principal=principal,
             )
             log_event(
                 logger,
@@ -172,6 +179,7 @@ class ChatService:
             workflow_run_id=workflow_result.workflow_run_id,
             task_id=workflow_result.task_id,
             status_value=workflow_result.status or "succeeded",
+            principal=principal,
         )
         return {
             "message_id": payload["id"],
@@ -199,6 +207,7 @@ class ChatService:
         *,
         question: str,
         session_id: str | None,
+        principal: Principal,
     ) -> AsyncIterator[dict]:
         normalized_question, resolved_session_id, request_id, input_variable = self._prepare_request(
             question=question,
@@ -213,7 +222,7 @@ class ChatService:
         try:
             async for event in self.dify_client.stream_workflow(
                 inputs={input_variable: normalized_question},
-                user=self._build_dify_user(resolved_session_id),
+                user=self._build_dify_user(principal, resolved_session_id),
                 response_mode="streaming",
                 trace_id=request_id if settings.DIFY_ENABLE_TRACE else None,
             ):
@@ -272,6 +281,7 @@ class ChatService:
                 workflow_run_id=workflow_run_id,
                 task_id=provider_message_id,
                 status_value=final_status,
+                principal=principal,
             )
             yield {
                 "event": "end",
@@ -291,6 +301,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_not_configured",
                 answer="Dify integration is not configured",
+                principal=principal,
             )
             yield {"event": "error", "data": {"detail": "Chat integration is not configured"}}
         except DifyTimeoutError:
@@ -300,6 +311,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_timeout",
                 answer="".join(answer_parts).strip() or "Dify request timed out",
+                principal=principal,
             )
             yield {"event": "error", "data": {"detail": "Chat provider timed out"}}
         except DifyBadRequestError:
@@ -309,6 +321,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_bad_request",
                 answer="".join(answer_parts).strip() or "Dify request rejected",
+                principal=principal,
             )
             yield {"event": "error", "data": {"detail": "Chat provider rejected request"}}
         except DifyAuthError:
@@ -318,6 +331,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_auth_failed",
                 answer="".join(answer_parts).strip() or "Dify authentication failed",
+                principal=principal,
             )
             yield {"event": "error", "data": {"detail": "Chat provider authentication failed"}}
         except (DifyServiceUnavailableError, DifyWorkflowExecutionError):
@@ -327,6 +341,7 @@ class ChatService:
                 session_id=resolved_session_id,
                 error_code="dify_request_failed",
                 answer="".join(answer_parts).strip() or "Dify request failed",
+                principal=principal,
             )
             yield {"event": "error", "data": {"detail": "Chat provider request failed"}}
 
@@ -395,12 +410,16 @@ class ChatService:
         workflow_run_id: str | None,
         task_id: str | None,
         status_value: str,
+        principal: Principal,
     ) -> dict:
         payload = self.qa_log_service.create_log(
             db,
             question=question,
             retrieved_context=None,
             answer=answer,
+            user_id=UUID(principal.user_id),
+            student_id_snapshot=principal.student_id,
+            name_snapshot=principal.name,
             session_id=session_id,
             source="dify",
             status=status_value,
@@ -438,12 +457,16 @@ class ChatService:
         session_id: str,
         error_code: str,
         answer: str,
+        principal: Principal,
     ) -> None:
         payload = self.qa_log_service.create_log(
             db,
             question=question,
             retrieved_context=None,
             answer=answer,
+            user_id=UUID(principal.user_id),
+            student_id_snapshot=principal.student_id,
+            name_snapshot=principal.name,
             session_id=session_id,
             source="dify",
             status="failed",
@@ -463,9 +486,10 @@ class ChatService:
         )
 
     @staticmethod
-    def _build_dify_user(session_id: str) -> str:
+    def _build_dify_user(principal: Principal, session_id: str) -> str:
         prefix = settings.DIFY_USER_PREFIX or "guest"
-        return f"{prefix}-{session_id}"
+        identity = principal.student_id or principal.user_id
+        return f"{prefix}-{identity}-{session_id}"
 
     @staticmethod
     def _extract_answer(outputs: dict) -> str:

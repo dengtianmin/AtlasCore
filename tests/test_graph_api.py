@@ -117,26 +117,39 @@ def _admin_principal() -> Principal:
     return Principal(user_id=str(uuid4()), username="admin", roles=["admin"])
 
 
+def _user_principal() -> Principal:
+    return Principal(
+        user_id=str(uuid4()),
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+
 def test_public_graph_routes(monkeypatch, tmp_path):
     _bootstrap(monkeypatch, tmp_path)
     _seed_graph()
 
-    assert graph_summary().node_count == 2
-    overview = graph_overview(limit=10)
+    assert graph_summary(_user_principal()).node_count == 2
+    overview = graph_overview(_user_principal(), limit=10)
     assert overview.total_edges == 1
     assert overview.metadata["query"] == "overview"
-    assert list_graph_nodes(limit=10, offset=0, node_type=None, keyword="Ali").total == 1
-    detail = node_details("n1")
+    assert list_graph_nodes(_user_principal(), limit=10, offset=0, node_type=None, keyword="Ali").total == 1
+    detail = node_details("n1", _user_principal())
     assert detail.node.id == "n1"
     assert detail.detail is not None
     assert detail.description == "Researcher"
     assert detail.source_documents[0].title == "people.md"
     assert detail.related_entities[0].id == "n2"
     assert detail.metadata["query"] == "node_detail"
-    neighbors = node_neighbors("n1", limit=10)
+    neighbors = node_neighbors(_user_principal(), "n1", limit=10)
     assert neighbors.center_node_id == "n1"
     assert neighbors.metadata["query"] == "neighbors"
-    subgraph = node_subgraph("n1", depth=1, limit=10)
+    subgraph = node_subgraph(_user_principal(), "n1", depth=1, limit=10)
     assert subgraph.center_node_id == "n1"
     assert subgraph.metadata["query"] == "subgraph"
 
