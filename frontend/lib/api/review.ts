@@ -1,5 +1,12 @@
 import { requestJson } from "@/lib/api/client";
-import type { ReviewEvaluationResponse, ReviewRubric } from "@/types/api";
+import type {
+  ReviewDifyConfigSummary,
+  ReviewDifyConfigUpdateRequest,
+  ReviewEvaluationResponse,
+  ReviewLogListResponse,
+  ReviewLogRecord,
+  ReviewRubric
+} from "@/types/api";
 
 export function evaluateReview(answerText: string) {
   return requestJson<ReviewEvaluationResponse>("/review/evaluate", {
@@ -18,4 +25,23 @@ export function updateReviewRubric(rubricText: string) {
     method: "PUT",
     body: { rubric_text: rubricText }
   });
+}
+
+export function getReviewDifyConfig() {
+  return requestJson<ReviewDifyConfigSummary>("/api/admin/review/config");
+}
+
+export function updateReviewDifyConfig(payload: ReviewDifyConfigUpdateRequest) {
+  return requestJson<ReviewDifyConfigSummary>("/api/admin/review/config", {
+    method: "PUT",
+    body: payload
+  });
+}
+
+export function listReviewLogs() {
+  return requestJson<ReviewLogListResponse>("/api/admin/review/logs");
+}
+
+export function getReviewLog(recordId: string) {
+  return requestJson<ReviewLogRecord>(`/api/admin/review/logs/${recordId}`);
 }

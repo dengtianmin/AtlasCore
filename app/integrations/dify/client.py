@@ -63,6 +63,15 @@ class DifyClientProtocol(Protocol):
     ) -> DifyWorkflowResult:
         ...
 
+    async def run_application(
+        self,
+        inputs: dict[str, Any],
+        user: str,
+        response_mode: str = "blocking",
+        trace_id: str | None = None,
+    ) -> DifyWorkflowResult:
+        ...
+
     async def upload_file(
         self,
         file_path: str,
@@ -169,6 +178,27 @@ class DifyClient:
         raw = await self._request_json("POST", "/workflows/run", json_body=payload, user=user, trace_id=trace_id)
         return self._parse_workflow_result(raw)
 
+    async def run_application(
+        self,
+        inputs: dict[str, Any],
+        user: str,
+        response_mode: str = "blocking",
+        trace_id: str | None = None,
+    ) -> DifyWorkflowResult:
+        if self._settings.app_mode == "chat":
+            return await self._run_chat_application(
+                inputs=inputs,
+                user=user,
+                response_mode=response_mode,
+                trace_id=trace_id,
+            )
+        return await self.run_workflow(
+            inputs=inputs,
+            user=user,
+            response_mode=response_mode,
+            trace_id=trace_id,
+        )
+
     async def run_workflow_by_id(
         self,
         workflow_id: str,
@@ -257,6 +287,26 @@ class DifyClient:
 
     async def get_info(self) -> dict[str, Any]:
         return await self._request_json("GET", "/info")
+
+    async def _run_chat_application(
+        self,
+        *,
+        inputs: dict[str, Any],
+        user: str,
+        response_mode: str,
+        trace_id: str | None,
+    ) -> DifyWorkflowResult:
+        query = self._extract_chat_query(inputs)
+        payload: dict[str, Any] = {
+            "query": query,
+            "response_mode": response_mode,
+            "user": user,
+            "inputs": inputs,
+        }
+        if trace_id and self._settings.enable_trace:
+            payload["trace_id"] = trace_id
+        raw = await self._request_json("POST", "/chat-messages", json_body=payload, user=user, trace_id=trace_id)
+        return self._parse_chat_result(raw)
 
     async def get_logs(self, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request_json("GET", "/workflows/logs", params=filters or {})
@@ -508,6 +558,38 @@ class DifyClient:
                 raw=payload,
             )
         return result
+
+    def _parse_chat_result(self, payload: dict[str, Any]) -> DifyWorkflowResult:
+        answer = payload.get("answer")
+        if not isinstance(answer, str):
+            answer = ""
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        result = DifyWorkflowResult(
+            workflow_run_id=str(payload.get("conversation_id") or metadata.get("conversation_id") or "") or None,
+            task_id=str(payload.get("message_id") or "") or None,
+            status="succeeded",
+            outputs={"text": answer.strip(), **metadata},
+            error=payload.get("error"),
+            elapsed_time=payload.get("metadata", {}).get("elapsed_time") if isinstance(payload.get("metadata"), dict) else None,
+            raw=payload,
+        )
+        if not result.outputs.get("text"):
+            raise DifyWorkflowExecutionError(
+                "Dify chat response did not contain text output",
+                raw=payload,
+            )
+        return result
+
+    def _extract_chat_query(self, inputs: dict[str, Any]) -> str:
+        preferred_key = self._settings.text_input_variable
+        if preferred_key:
+            value = inputs.get(preferred_key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in inputs.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        raise DifyBadRequestError("Dify chat app requires a text input")
 
     @staticmethod
     def _decode_json(response: httpx.Response) -> dict[str, Any]:

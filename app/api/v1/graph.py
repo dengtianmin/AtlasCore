@@ -21,7 +21,7 @@ service = GraphService()
 
 @router.get("/summary", response_model=GraphSummaryResponse)
 def graph_summary(
-    _: Annotated[Principal, Depends(get_current_active_user_principal)],
+    _: Annotated[Principal | None, Depends(get_current_active_user_principal)] = None,
 ) -> GraphSummaryResponse:
     return GraphSummaryResponse(**service.get_summary())
 

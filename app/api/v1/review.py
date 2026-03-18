@@ -20,7 +20,7 @@ def get_session() -> Generator[Session, None, None]:
 @router.post("/evaluate", response_model=ReviewEvaluationResponse)
 async def evaluate_review(
     payload: ReviewEvaluationRequest,
-    _: Annotated[Principal, Depends(get_current_active_user_principal)],
+    principal: Annotated[Principal, Depends(get_current_active_user_principal)],
     db: Annotated[Session, Depends(get_session)],
 ) -> ReviewEvaluationResponse:
-    return ReviewEvaluationResponse(**await review_service.evaluate_answer(db, answer_text=payload.answer_text))
+    return ReviewEvaluationResponse(**await review_service.evaluate_answer(db, answer_text=payload.answer_text, principal=principal))

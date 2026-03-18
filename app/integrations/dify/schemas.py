@@ -9,6 +9,7 @@ class DifySettings(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     timeout_seconds: float = Field(default=15.0, gt=0)
+    app_mode: Literal["workflow", "chat"] = "workflow"
     workflow_id: str | None = None
     response_mode: Literal["blocking", "streaming"] = "blocking"
     text_input_variable: str | None = None

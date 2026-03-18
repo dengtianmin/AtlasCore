@@ -42,6 +42,9 @@ def create_qa_log(
             question=payload.question,
             retrieved_context=payload.retrieved_context,
             answer=payload.answer,
+            user_id=None,
+            student_id_snapshot=None,
+            name_snapshot=None,
             session_id=payload.session_id,
             source=payload.source,
         )

@@ -49,7 +49,18 @@ integrations:
     database: neo4j
   dify:
     enabled: false
-    base_url: null
+    base_url: https://api.dify.ai
     timeout_seconds: 15
+    app_mode: workflow
+    response_mode: streaming
+    text_input_variable: query
+  review_dify:
+    enabled: false
+    base_url: https://api.dify.ai
+    timeout_seconds: 30
+    app_mode: workflow
+    response_mode: blocking
+    text_input_variable: answer_text
+    user_prefix: review
   jwt:
     enabled: true

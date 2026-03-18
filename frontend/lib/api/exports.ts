@@ -24,6 +24,13 @@ export function triggerFeedbackExport(operator: string) {
   });
 }
 
+export function triggerReviewLogExport(operator: string) {
+  return requestJson<ExportRecord>("/api/admin/exports/review-logs", {
+    method: "POST",
+    body: { operator }
+  });
+}
+
 export async function downloadExport(filename: string) {
   const blob = await requestBlob(`/api/admin/exports/download/${filename}`);
   triggerBrowserDownload(blob, filename);

@@ -345,10 +345,93 @@ export interface ReviewRubric {
   is_active: boolean;
 }
 
-export interface ReviewEvaluationResponse {
-  score: number;
+export interface ReviewItem {
+  item_name: string;
+  conclusion: string;
+  importance: string;
+  scheme_excerpt: string;
+  standard_basis: string;
   reason: string;
+  suggestion: string;
+}
+
+export interface ReviewKeyIssue {
+  title: string;
+  risk_level: string;
+  problem: string;
+  basis: string;
+  suggestion: string;
+}
+
+export interface ReviewDeductionLogicItem {
+  reason: string;
+  deducted_score: number;
+}
+
+export interface ReviewEvaluationResponse {
+  type: "review_result";
+  score: number | null;
+  grade: string | null;
+  risk_level: string | null;
+  summary: string;
+  review_items: ReviewItem[];
+  key_issues: ReviewKeyIssue[];
+  deduction_logic: ReviewDeductionLogicItem[];
+  raw_text: string | null;
+  parse_status: "success" | "partial" | "failed";
+  review_log_id: string | null;
+  raw_response: Record<string, unknown> | string | null;
   rubric_updated_at: string | null;
+  source: string;
+  provider_message_id: string | null;
+  workflow_run_id: string | null;
+  created_at: string | null;
+}
+
+export interface ReviewDifyConfigSummary {
+  enabled: boolean;
+  app_mode: "workflow" | "chat";
+  response_mode: "blocking" | "streaming";
+  timeout_seconds: number;
+  workflow_id_configured: boolean;
+  text_input_variable: string | null;
+  file_input_variable: string | null;
+  enable_trace: boolean;
+  user_prefix: string;
+}
+
+export interface ReviewDifyConfigUpdateRequest {
+  app_mode: "workflow" | "chat";
+  response_mode: "blocking" | "streaming";
+  timeout_seconds: number;
+  workflow_id?: string | null;
+  text_input_variable?: string | null;
+  file_input_variable?: string | null;
+  enable_trace: boolean;
+  user_prefix: string;
+}
+
+export interface ReviewLogRecord {
+  id: string;
+  user_id: string | null;
+  student_id_snapshot: string | null;
+  name_snapshot: string | null;
+  review_input: string;
+  review_result: string | null;
+  raw_response: string | null;
+  normalized_result: string | null;
+  parse_status: string;
+  score: number | null;
+  risk_level: string | null;
+  engine_source: string;
+  app_mode: string | null;
+  workflow_run_id: string | null;
+  provider_message_id: string | null;
+  created_at: string;
+}
+
+export interface ReviewLogListResponse {
+  items: ReviewLogRecord[];
 }
 
 export interface ExportRecord {

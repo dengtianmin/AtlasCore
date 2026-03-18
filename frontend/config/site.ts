@@ -10,6 +10,7 @@ export const siteConfig = {
     { href: "/admin/graph/prompt", label: "提取 Prompt" },
     { href: "/admin/graph/models", label: "提取模型" },
     { href: "/admin/review/rubric", label: "评分标准" },
+    { href: "/admin/review/logs", label: "评阅日志" },
     { href: "/admin/dify", label: "Dify 调试" },
     { href: "/admin/graph", label: "图管理" },
     { href: "/admin/logs", label: "问答日志" },

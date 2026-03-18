@@ -11,6 +11,8 @@ from app.models.graph_prompt_setting import GraphPromptSetting
 from app.models.graph_sync_record import GraphSyncRecord
 from app.models.graph_version import GraphVersion
 from app.models.qa_log import QuestionAnswerLog
+from app.models.review_log import ReviewLog
+from app.models.review_dify_setting import ReviewDifySetting
 from app.models.review_rubric_setting import ReviewRubricSetting
 from app.models.user import User
 
@@ -18,6 +20,8 @@ __all__ = [
     "AdminAccount",
     "Document",
     "QuestionAnswerLog",
+    "ReviewLog",
+    "ReviewDifySetting",
     "FeedbackRecord",
     "ExportRecord",
     "GraphNode",

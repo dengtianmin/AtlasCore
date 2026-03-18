@@ -1,46 +1,39 @@
 from __future__ import annotations
 
-import base64
-import hashlib
+from collections.abc import Iterable
+from datetime import datetime
 import json
 import re
 
-import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.auth.principal import Principal
 from app.core.config import settings
-from app.models.graph_model_setting import GraphModelSetting
+from app.integrations.dify import (
+    DifyAuthError,
+    DifyBadRequestError,
+    DifyClient,
+    DifyConfigurationError,
+    DifyServiceUnavailableError,
+    DifyTimeoutError,
+    DifyWorkflowExecutionError,
+)
+from app.integrations.dify.schemas import DifySettings, DifyWorkflowResult
+from app.models.review_dify_setting import ReviewDifySetting
 from app.models.review_rubric_setting import ReviewRubricSetting
-from app.repositories.graph_settings_repo import GraphModelSettingRepository
+from app.repositories.review_dify_setting_repo import ReviewDifySettingRepository
 from app.repositories.review_repo import ReviewRubricSettingRepository
+from app.schemas.review import ReviewResultData
+from app.services.review_log_service import review_log_service
 
-DEFAULT_REVIEW_REASON = "模型未返回有效理由，系统已按当前评分标准生成兜底结果。"
-
-
-class _LocalSecretBox:
-    def __init__(self) -> None:
-        seed = settings.JWT_SECRET or settings.ADMIN_AUTH_SECRET or "atlascore-review-model-key"
-        self._key = hashlib.sha256(seed.encode("utf-8")).digest()
-
-    def encrypt(self, value: str) -> str:
-        raw = value.encode("utf-8")
-        cipher = bytes(byte ^ self._key[index % len(self._key)] for index, byte in enumerate(raw))
-        return base64.b64encode(cipher).decode("ascii")
-
-    def decrypt(self, value: str | None) -> str | None:
-        if not value:
-            return None
-        raw = base64.b64decode(value.encode("ascii"))
-        plain = bytes(byte ^ self._key[index % len(self._key)] for index, byte in enumerate(raw))
-        return plain.decode("utf-8")
+DEFAULT_REVIEW_SUMMARY = "本次评阅未生成完整结构化结果，已返回可降级展示内容。"
 
 
 class ReviewService:
     def __init__(self) -> None:
         self.rubric_repo = ReviewRubricSettingRepository()
-        self.model_repo = GraphModelSettingRepository()
-        self.secret_box = _LocalSecretBox()
+        self.review_dify_repo = ReviewDifySettingRepository()
 
     def get_rubric(self, db: Session) -> dict:
         setting = self.rubric_repo.get_active(db)
@@ -60,7 +53,38 @@ class ReviewService:
         db.commit()
         return self._serialize_rubric(setting)
 
-    async def evaluate_answer(self, db: Session, *, answer_text: str) -> dict:
+    def get_review_dify_config(self, db: Session) -> dict:
+        resolved = self._resolve_review_dify_settings(db)
+        return {
+            "enabled": resolved.enabled,
+            "app_mode": resolved.app_mode,
+            "response_mode": resolved.response_mode,
+            "timeout_seconds": resolved.timeout_seconds,
+            "workflow_id_configured": bool(resolved.workflow_id),
+            "text_input_variable": resolved.text_input_variable,
+            "file_input_variable": resolved.file_input_variable,
+            "enable_trace": resolved.enable_trace,
+            "user_prefix": resolved.user_prefix,
+        }
+
+    def update_review_dify_config(self, db: Session, *, payload: dict, operator: str) -> dict:
+        setting = ReviewDifySetting(
+            app_mode=payload["app_mode"],
+            response_mode=payload["response_mode"],
+            timeout_seconds=payload["timeout_seconds"],
+            workflow_id=payload.get("workflow_id"),
+            text_input_variable=payload.get("text_input_variable"),
+            file_input_variable=payload.get("file_input_variable"),
+            enable_trace=payload["enable_trace"],
+            user_prefix=payload["user_prefix"],
+            updated_by=operator,
+            is_active=True,
+        )
+        self.review_dify_repo.replace_active(db, setting=setting)
+        db.commit()
+        return self.get_review_dify_config(db)
+
+    async def evaluate_answer(self, db: Session, *, answer_text: str, principal: Principal) -> dict:
         normalized_answer = answer_text.strip()
         if not normalized_answer:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Answer text must not be empty")
@@ -72,11 +96,99 @@ class ReviewService:
                 detail="Review rubric is not configured. Please ask an administrator to set it first.",
             )
 
-        model_setting = self._require_active_model(db)
-        raw_response = await self._call_model(answer_text=normalized_answer, rubric_text=rubric.rubric_text, model_setting=model_setting)
-        parsed = self._parse_review_response(raw_response)
-        parsed["rubric_updated_at"] = rubric.updated_at
-        return parsed
+        dify_settings = self._resolve_review_dify_settings(db)
+        client = DifyClient(dify_settings=dify_settings)
+        inputs = self._build_review_inputs(
+            answer_text=normalized_answer,
+            rubric_text=rubric.rubric_text,
+            dify_settings=dify_settings,
+        )
+        user = self._build_dify_user(principal, dify_settings)
+
+        try:
+            result = await client.run_application(
+                inputs=inputs,
+                user=user,
+                response_mode=dify_settings.response_mode,
+                trace_id=principal.user_id if dify_settings.enable_trace else None,
+            )
+        except DifyConfigurationError as exc:
+            self._log_provider_failure(
+                db,
+                principal=principal,
+                review_input=normalized_answer,
+                detail="Review Dify is not configured",
+                error_code="review_dify_not_configured",
+                dify_settings=dify_settings,
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Review integration is not configured") from exc
+        except DifyTimeoutError as exc:
+            self._log_provider_failure(
+                db,
+                principal=principal,
+                review_input=normalized_answer,
+                detail="Review Dify request timed out",
+                error_code="review_dify_timeout",
+                dify_settings=dify_settings,
+            )
+            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Review provider timed out") from exc
+        except DifyBadRequestError as exc:
+            self._log_provider_failure(
+                db,
+                principal=principal,
+                review_input=normalized_answer,
+                detail=str(exc),
+                error_code="review_dify_bad_request",
+                dify_settings=dify_settings,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review provider rejected request") from exc
+        except DifyAuthError as exc:
+            self._log_provider_failure(
+                db,
+                principal=principal,
+                review_input=normalized_answer,
+                detail=str(exc),
+                error_code="review_dify_auth_failed",
+                dify_settings=dify_settings,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review provider authentication failed") from exc
+        except (DifyServiceUnavailableError, DifyWorkflowExecutionError) as exc:
+            self._log_provider_failure(
+                db,
+                principal=principal,
+                review_input=normalized_answer,
+                detail=str(exc),
+                error_code="review_dify_request_failed",
+                dify_settings=dify_settings,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review provider request failed") from exc
+
+        normalized_result = self._normalize_review_result(result)
+        log_payload = review_log_service.create_log(
+            db,
+            principal=principal,
+            review_input=normalized_answer,
+            review_result=normalized_result.get("summary") or normalized_result.get("raw_text"),
+            raw_response=result.raw,
+            normalized_result=normalized_result,
+            parse_status=normalized_result["parse_status"],
+            score=normalized_result["score"],
+            risk_level=normalized_result["risk_level"],
+            engine_source="review_dify",
+            app_mode=dify_settings.app_mode,
+            workflow_run_id=result.workflow_run_id,
+            provider_message_id=result.task_id,
+        )
+        return {
+            **normalized_result,
+            "review_log_id": log_payload["id"],
+            "raw_response": result.raw,
+            "rubric_updated_at": rubric.updated_at,
+            "source": "review_dify",
+            "provider_message_id": result.task_id,
+            "workflow_run_id": result.workflow_run_id,
+            "created_at": log_payload["created_at"],
+        }
 
     def _serialize_rubric(self, setting: ReviewRubricSetting) -> dict:
         return {
@@ -86,148 +198,286 @@ class ReviewService:
             "is_active": setting.is_active,
         }
 
-    def _require_active_model(self, db: Session) -> GraphModelSetting:
-        setting = self.model_repo.get_active(db)
-        if setting is None:
-            setting = self._build_model_setting_from_env()
-        if setting is None or not setting.enabled:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Review model is not configured")
-        resolved = self._resolve_model_runtime_settings(setting)
-        if not resolved.api_base_url or not resolved.model_name or not resolved.api_key_ciphertext:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Review model is not fully configured")
-        return resolved
+    def _resolve_review_dify_settings(self, db: Session) -> DifySettings:
+        base = settings.review_dify_settings.model_copy()
+        runtime = self.review_dify_repo.get_active(db)
+        if runtime:
+            base.app_mode = runtime.app_mode
+            base.response_mode = runtime.response_mode
+            base.timeout_seconds = runtime.timeout_seconds
+            base.workflow_id = runtime.workflow_id
+            base.text_input_variable = runtime.text_input_variable
+            base.file_input_variable = runtime.file_input_variable
+            base.enable_trace = runtime.enable_trace
+            base.user_prefix = runtime.user_prefix
+        return base
 
-    def _build_model_setting_from_env(self) -> GraphModelSetting | None:
-        model_name = (settings.GRAPH_EXTRACTION_MODEL_NAME or "").strip()
-        api_base_url = (settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL or "").strip()
-        api_key = settings.resolved_graph_extraction_model_api_key
-        if not model_name and not api_base_url and not api_key and not settings.GRAPH_EXTRACTION_MODEL_ENABLED:
-            return None
-        return GraphModelSetting(
-            provider=settings.GRAPH_EXTRACTION_MODEL_PROVIDER.strip(),
-            model_name=model_name or "unset-model",
-            api_base_url=api_base_url or None,
-            api_key_ciphertext=self.secret_box.encrypt(api_key.strip()) if api_key else None,
-            enabled=settings.GRAPH_EXTRACTION_MODEL_ENABLED,
-            thinking_enabled=settings.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED,
-            is_active=True,
-            updated_by="system",
-        )
-
-    def _resolve_model_runtime_settings(self, setting: GraphModelSetting) -> GraphModelSetting:
-        api_base_url = setting.api_base_url or settings.GRAPH_EXTRACTION_MODEL_API_BASE_URL
-        api_key_ciphertext = setting.api_key_ciphertext
-        if not api_key_ciphertext:
-            fallback_api_key = settings.resolved_graph_extraction_model_api_key
-            if fallback_api_key:
-                api_key_ciphertext = self.secret_box.encrypt(fallback_api_key)
-
-        return GraphModelSetting(
-            id=setting.id,
-            provider=setting.provider,
-            model_name=setting.model_name,
-            api_base_url=api_base_url,
-            api_key_ciphertext=api_key_ciphertext,
-            enabled=setting.enabled,
-            thinking_enabled=setting.thinking_enabled,
-            is_active=setting.is_active,
-            updated_by=setting.updated_by,
-        )
-
-    async def _call_model(self, *, answer_text: str, rubric_text: str, model_setting: GraphModelSetting) -> str:
-        api_key = self.secret_box.decrypt(model_setting.api_key_ciphertext)
-        if not model_setting.api_base_url or not api_key:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Review model is not fully configured")
-
-        prompt = self._build_prompt(rubric_text=rubric_text, answer_text=answer_text)
-        url = f"{model_setting.api_base_url.rstrip('/')}/chat/completions"
-        payload = {
-            "model": model_setting.model_name,
-            "messages": [
-                {"role": "system", "content": "你是一个严格的评阅助手。必须只输出合法 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0,
+    @staticmethod
+    def _build_review_inputs(*, answer_text: str, rubric_text: str, dify_settings: DifySettings) -> dict[str, str]:
+        inputs = {
+            "answer_text": answer_text,
+            "review_input": answer_text,
+            "rubric_text": rubric_text,
         }
-        if not model_setting.thinking_enabled:
-            payload["thinking"] = {"type": "disabled"}
-        try:
-            async with httpx.AsyncClient(
-                timeout=settings.GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS,
-                trust_env=False,
-            ) as client:
-                response = await client.post(
-                    url,
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json=payload,
-                )
-                response.raise_for_status()
-                result = response.json()
-        except httpx.TimeoutException as exc:
-            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Review model request timed out") from exc
-        except httpx.HTTPStatusError as exc:
-            response_text = (exc.response.text or "").strip()
-            detail = f"Review model request failed with status {exc.response.status_code}"
-            if response_text:
-                detail = f"{detail}: {response_text[:500]}"
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
-        except httpx.RequestError as exc:
-            detail = str(exc).strip() or repr(exc)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Review model request error: {detail}") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Review model returned invalid JSON: {exc}") from exc
-        except (KeyError, IndexError, TypeError) as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Review model response schema is invalid: {exc}") from exc
-        return str(result["choices"][0]["message"]["content"])
+        if dify_settings.text_input_variable:
+            inputs[dify_settings.text_input_variable] = answer_text
+        return inputs
 
-    def _build_prompt(self, *, rubric_text: str, answer_text: str) -> str:
-        return (
-            "请依据以下评分标准对答案打分。"
-            "\n\n评分标准：\n"
-            f"{rubric_text.strip()}"
-            "\n\n待评阅答案：\n"
-            f"{answer_text}"
-            "\n\n要求：\n"
-            "1. 分数范围固定为 0 到 100 的整数。\n"
-            "2. 必须结合评分标准说明理由，不能泛泛而谈。\n"
-            "3. 只返回合法 JSON，不要输出额外解释。\n"
-            '4. JSON 格式必须为：{"score": 0, "reason": "..."}'
+    @staticmethod
+    def _build_dify_user(principal: Principal, dify_settings: DifySettings) -> str:
+        identity = principal.student_id or principal.username or principal.user_id
+        return f"{dify_settings.user_prefix}:{identity}"
+
+    def _normalize_review_result(self, result: DifyWorkflowResult) -> dict:
+        raw_text = self._extract_raw_text(result)
+        structured_payload = self._extract_structured_payload(result, raw_text)
+        data = ReviewResultData().model_dump()
+
+        if structured_payload is None:
+            data["summary"] = raw_text or DEFAULT_REVIEW_SUMMARY
+            data["raw_text"] = raw_text or None
+            data["parse_status"] = "failed"
+            return data
+
+        data["score"] = self._normalize_score(structured_payload.get("score"))
+        data["grade"] = self._normalize_optional_text(structured_payload.get("grade"))
+        data["risk_level"] = self._normalize_risk_level(structured_payload.get("risk_level"))
+        data["summary"] = (
+            self._normalize_optional_text(structured_payload.get("summary"))
+            or self._normalize_optional_text(structured_payload.get("reason"))
+            or raw_text
+            or DEFAULT_REVIEW_SUMMARY
         )
+        data["review_items"] = self._normalize_review_items(structured_payload.get("review_items"))
+        data["key_issues"] = self._normalize_key_issues(structured_payload.get("key_issues"))
+        data["deduction_logic"] = self._normalize_deduction_logic(structured_payload.get("deduction_logic"))
+        data["raw_text"] = raw_text or None
 
-    def _parse_review_response(self, raw_text: str) -> dict:
-        cleaned = raw_text.strip()
-        fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, flags=re.DOTALL)
+        has_structured_content = bool(
+            data["score"] is not None
+            or data["grade"]
+            or data["risk_level"]
+            or data["review_items"]
+            or data["key_issues"]
+            or data["deduction_logic"]
+        )
+        data["parse_status"] = "success" if has_structured_content else "partial"
+        return data
+
+    def _extract_structured_payload(self, result: DifyWorkflowResult, raw_text: str | None) -> dict | None:
+        candidates: list[object] = [result.outputs]
+        for value in result.outputs.values():
+            candidates.append(value)
+        if raw_text:
+            candidates.append(raw_text)
+        candidates.append(result.raw)
+
+        for candidate in candidates:
+            payload = self._coerce_json_object(candidate)
+            if payload is not None:
+                return payload
+        return None
+
+    def _coerce_json_object(self, candidate: object) -> dict | None:
+        if isinstance(candidate, dict):
+            nested = self._unwrap_useful_dict(candidate)
+            if nested:
+                return nested
+            return candidate if self._looks_like_review_payload(candidate) else None
+        if isinstance(candidate, str):
+            text = candidate.strip()
+            if not text:
+                return None
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = self._extract_json_from_text(text)
+            if isinstance(parsed, dict):
+                nested = self._unwrap_useful_dict(parsed)
+                return nested or parsed
+        return None
+
+    def _extract_json_from_text(self, text: str) -> dict | None:
+        fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL)
         if fenced_match:
-            cleaned = fenced_match.group(1)
+            try:
+                parsed = json.loads(fenced_match.group(1))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
 
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end <= start:
+            return None
         try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Review model returned non-JSON content: {exc}") from exc
+            parsed = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review model returned an invalid payload")
+    def _unwrap_useful_dict(self, payload: dict) -> dict | None:
+        if self._looks_like_review_payload(payload):
+            return payload
+        for key in ("result", "data", "outputs", "review_result"):
+            nested = payload.get(key)
+            if isinstance(nested, dict) and self._looks_like_review_payload(nested):
+                return nested
+        return None
 
-        score = self._normalize_score(payload.get("score"))
-        reason = str(payload.get("reason") or "").strip() or DEFAULT_REVIEW_REASON
-        return {"score": score, "reason": reason}
+    @staticmethod
+    def _looks_like_review_payload(payload: dict) -> bool:
+        expected_keys = {
+            "score",
+            "grade",
+            "risk_level",
+            "summary",
+            "review_items",
+            "key_issues",
+            "deduction_logic",
+            "reason",
+        }
+        return any(key in payload for key in expected_keys)
 
-    def _normalize_score(self, raw_score) -> int:
+    def _extract_raw_text(self, result: DifyWorkflowResult) -> str | None:
+        preferred = ("text", "answer", "output", "result")
+        for key in preferred:
+            value = result.outputs.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in result.outputs.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        answer = result.raw.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            return answer.strip()
+        return None
+
+    def _normalize_review_items(self, value: object) -> list[dict]:
+        return [
+            {
+                "item_name": self._normalize_optional_text(item.get("item_name") or item.get("name")) or "",
+                "conclusion": self._normalize_optional_text(item.get("conclusion")) or "",
+                "importance": self._normalize_optional_text(item.get("importance")) or "",
+                "scheme_excerpt": self._normalize_optional_text(item.get("scheme_excerpt") or item.get("excerpt")) or "",
+                "standard_basis": self._normalize_optional_text(item.get("standard_basis") or item.get("basis")) or "",
+                "reason": self._normalize_optional_text(item.get("reason")) or "",
+                "suggestion": self._normalize_optional_text(item.get("suggestion")) or "",
+            }
+            for item in self._iter_dict_list(value)
+        ]
+
+    def _normalize_key_issues(self, value: object) -> list[dict]:
+        return [
+            {
+                "title": self._normalize_optional_text(item.get("title")) or "",
+                "risk_level": self._normalize_risk_level(item.get("risk_level")) or "",
+                "problem": self._normalize_optional_text(item.get("problem")) or "",
+                "basis": self._normalize_optional_text(item.get("basis")) or "",
+                "suggestion": self._normalize_optional_text(item.get("suggestion")) or "",
+            }
+            for item in self._iter_dict_list(value)
+        ]
+
+    def _normalize_deduction_logic(self, value: object) -> list[dict]:
+        normalized: list[dict] = []
+        for item in self._iter_dict_list(value):
+            deducted_score = item.get("deducted_score")
+            if isinstance(deducted_score, bool):
+                deducted_score = 0
+            elif isinstance(deducted_score, str):
+                try:
+                    deducted_score = float(deducted_score.strip())
+                except ValueError:
+                    deducted_score = 0
+            elif not isinstance(deducted_score, (int, float)):
+                deducted_score = 0
+            normalized.append(
+                {
+                    "reason": self._normalize_optional_text(item.get("reason")) or "",
+                    "deducted_score": deducted_score,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _iter_dict_list(value: object) -> Iterable[dict]:
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, dict)]
+
+    @staticmethod
+    def _normalize_optional_text(value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _normalize_score(self, raw_score: object) -> int | None:
+        if raw_score is None or raw_score == "":
+            return None
         if isinstance(raw_score, bool):
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review model returned an invalid score")
+            return None
         if isinstance(raw_score, (int, float)):
             normalized = int(round(float(raw_score)))
-        elif isinstance(raw_score, str):
-            value = raw_score.strip()
-            if not value:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review model returned an empty score")
+            return max(0, min(100, normalized))
+        if isinstance(raw_score, str):
             try:
-                normalized = int(round(float(value)))
-            except ValueError as exc:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review model returned a non-numeric score") from exc
-        else:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Review model returned an invalid score")
-        return max(0, min(100, normalized))
+                normalized = int(round(float(raw_score.strip())))
+            except ValueError:
+                return None
+            return max(0, min(100, normalized))
+        return None
+
+    def _normalize_risk_level(self, value: object) -> str | None:
+        text = self._normalize_optional_text(value)
+        if not text:
+            return None
+        normalized = text.lower()
+        if normalized in {"高", "高风险", "high", "high_risk"}:
+            return "high"
+        if normalized in {"中", "中风险", "medium", "medium_risk"}:
+            return "medium"
+        if normalized in {"低", "低风险", "low", "low_risk"}:
+            return "low"
+        return text
+
+    def _log_provider_failure(
+        self,
+        db: Session,
+        *,
+        principal: Principal,
+        review_input: str,
+        detail: str,
+        error_code: str,
+        dify_settings: DifySettings,
+    ) -> None:
+        review_log_service.create_log(
+            db,
+            principal=principal,
+            review_input=review_input,
+            review_result=detail,
+            raw_response={"error": detail, "error_code": error_code},
+            normalized_result={
+                "type": "review_result",
+                "score": None,
+                "grade": None,
+                "risk_level": None,
+                "summary": detail,
+                "review_items": [],
+                "key_issues": [],
+                "deduction_logic": [],
+                "raw_text": detail,
+                "parse_status": "failed",
+            },
+            parse_status="failed",
+            score=None,
+            risk_level=None,
+            engine_source="review_dify",
+            app_mode=dify_settings.app_mode,
+            workflow_run_id=None,
+            provider_message_id=None,
+        )
 
 
 review_service = ReviewService()

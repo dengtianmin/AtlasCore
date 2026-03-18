@@ -57,6 +57,19 @@ def export_feedback(
         db.close()
 
 
+@router.post("/review-logs", response_model=ExportTriggerResponse)
+def export_review_logs(
+    payload: ExportTriggerRequest,
+    _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],
+) -> ExportTriggerResponse:
+    db = _db_dependency()
+    try:
+        result = export_service.export_review_logs(db, operator=payload.operator)
+        return ExportTriggerResponse(**result)
+    finally:
+        db.close()
+
+
 @router.get("", response_model=ExportListResponse)
 def list_exports(
     _: Annotated[Principal, Depends(require_roles(ROLE_ADMIN))],

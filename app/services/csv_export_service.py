@@ -13,6 +13,7 @@ from app.core.logging import get_logger, log_event
 from app.repositories.export_record_repo import ExportRecordRepository
 from app.repositories.feedback_repo import FeedbackRepository
 from app.repositories.qa_log_repo import QuestionAnswerLogRepository
+from app.repositories.review_log_repo import ReviewLogRepository
 from app.services.runtime_status_service import runtime_status_service
 
 logger = get_logger(__name__)
@@ -22,6 +23,7 @@ class CsvExportService:
     def __init__(self) -> None:
         self.qa_log_repo = QuestionAnswerLogRepository()
         self.feedback_repo = FeedbackRepository()
+        self.review_log_repo = ReviewLogRepository()
         self.export_record_repo = ExportRecordRepository()
 
     def export_qa_logs(self, db: Session, *, operator: str) -> dict:
@@ -239,6 +241,107 @@ class CsvExportService:
                 error_type="csv_export_error",
                 detail=str(exc),
                 export_type="feedback",
+                operator=operator,
+            )
+            raise
+
+    def export_review_logs(self, db: Session, *, operator: str) -> dict:
+        started = perf_counter()
+        export_dir = Path(settings.CSV_EXPORT_DIR).expanduser()
+        export_dir.mkdir(parents=True, exist_ok=True)
+        log_event(
+            logger,
+            logging.INFO,
+            "csv_export_started",
+            "started",
+            export_type="review_logs",
+            operator=operator,
+            target_dir=str(export_dir),
+        )
+
+        try:
+            records = self.review_log_repo.list_all(db, limit=100000, offset=0)
+            timestamp = datetime.now(UTC)
+            file_path = export_dir / f"review_logs_{timestamp.strftime('%Y%m%d_%H%M%S')}.csv"
+            with file_path.open("w", encoding="utf-8", newline="") as csv_file:
+                writer = csv.DictWriter(
+                    csv_file,
+                    fieldnames=[
+                        "id",
+                        "name",
+                        "student_id",
+                        "review_input",
+                        "score",
+                        "risk_level",
+                        "parse_status",
+                        "engine_source",
+                        "created_at",
+                    ],
+                )
+                writer.writeheader()
+                for record in records:
+                    writer.writerow(
+                        {
+                            "id": str(record.id),
+                            "name": record.name_snapshot or "",
+                            "student_id": record.student_id_snapshot or "",
+                            "review_input": record.review_input,
+                            "score": record.score if record.score is not None else "",
+                            "risk_level": record.risk_level or "",
+                            "parse_status": record.parse_status,
+                            "engine_source": record.engine_source,
+                            "created_at": record.created_at.isoformat(),
+                        }
+                    )
+
+            export_record = self.export_record_repo.create(
+                db,
+                export_type="review_logs",
+                export_time=timestamp,
+                record_count=len(records),
+                operator=operator,
+                file_path=str(file_path),
+            )
+            db.commit()
+            payload = self._to_payload(export_record, success=True)
+            runtime_status_service.record_csv_export(
+                {
+                    "status": "success",
+                    "export_type": "review_logs",
+                    "filename": payload["filename"],
+                    "record_count": len(records),
+                    "operator": operator,
+                }
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "csv_export_succeeded",
+                "success",
+                export_type="review_logs",
+                target_path=str(file_path),
+                record_count=len(records),
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
+            return payload
+        except Exception as exc:
+            runtime_status_service.record_error(error_type="csv_export_error", detail=str(exc))
+            runtime_status_service.record_csv_export(
+                {
+                    "status": "failed",
+                    "export_type": "review_logs",
+                    "operator": operator,
+                    "detail": str(exc),
+                }
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "csv_export_failed",
+                "failed",
+                error_type="csv_export_error",
+                detail=str(exc),
+                export_type="review_logs",
                 operator=operator,
             )
             raise

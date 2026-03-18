@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     DIFY_API_KEY: str | None = None
     DIFY_API_KEY_SECRET_NAME: str | None = None
     DIFY_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
+    DIFY_APP_MODE: Literal["workflow", "chat"] = "workflow"
     DIFY_WORKFLOW_ID: str | None = None
     DIFY_RESPONSE_MODE: Literal["blocking", "streaming"] = "blocking"
     DIFY_TEXT_INPUT_VARIABLE: str | None = None
@@ -94,6 +95,17 @@ class Settings(BaseSettings):
     DIFY_ENABLE_TRACE: bool = False
     DIFY_USER_PREFIX: str = "guest"
     DIFY_DEBUG_LOG_PATH: str = "./data/dify_debug.jsonl"
+    REVIEW_DIFY_BASE_URL: str | None = None
+    REVIEW_DIFY_API_KEY: str | None = None
+    REVIEW_DIFY_API_KEY_SECRET_NAME: str | None = None
+    REVIEW_DIFY_TIMEOUT: float = Field(default=30.0, gt=0)
+    REVIEW_DIFY_APP_MODE: Literal["workflow", "chat"] = "workflow"
+    REVIEW_DIFY_WORKFLOW_ID: str | None = None
+    REVIEW_DIFY_RESPONSE_MODE: Literal["blocking", "streaming"] = "blocking"
+    REVIEW_DIFY_TEXT_INPUT_VARIABLE: str | None = None
+    REVIEW_DIFY_FILE_INPUT_VARIABLE: str | None = None
+    REVIEW_DIFY_ENABLE_TRACE: bool = False
+    REVIEW_DIFY_USER_PREFIX: str = "review"
     GRAPH_EXTRACTION_PROMPT: str | None = None
     GRAPH_EXTRACTION_MODEL_PROVIDER: str = "openai-compatible"
     GRAPH_EXTRACTION_MODEL_NAME: str | None = None
@@ -179,12 +191,22 @@ class Settings(BaseSettings):
                     "GRAPH_DB_VERSION": graph_payload.get("db_version"),
                     "DIFY_BASE_URL": integrations_payload.get("dify", {}).get("base_url"),
                     "DIFY_TIMEOUT_SECONDS": integrations_payload.get("dify", {}).get("timeout_seconds"),
+                    "DIFY_APP_MODE": integrations_payload.get("dify", {}).get("app_mode"),
                     "DIFY_WORKFLOW_ID": integrations_payload.get("dify", {}).get("workflow_id"),
                     "DIFY_RESPONSE_MODE": integrations_payload.get("dify", {}).get("response_mode"),
                     "DIFY_TEXT_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("text_input_variable"),
                     "DIFY_FILE_INPUT_VARIABLE": integrations_payload.get("dify", {}).get("file_input_variable"),
                     "DIFY_ENABLE_TRACE": integrations_payload.get("dify", {}).get("enable_trace"),
                     "DIFY_USER_PREFIX": integrations_payload.get("dify", {}).get("user_prefix"),
+                    "REVIEW_DIFY_BASE_URL": integrations_payload.get("review_dify", {}).get("base_url"),
+                    "REVIEW_DIFY_TIMEOUT": integrations_payload.get("review_dify", {}).get("timeout_seconds"),
+                    "REVIEW_DIFY_APP_MODE": integrations_payload.get("review_dify", {}).get("app_mode"),
+                    "REVIEW_DIFY_WORKFLOW_ID": integrations_payload.get("review_dify", {}).get("workflow_id"),
+                    "REVIEW_DIFY_RESPONSE_MODE": integrations_payload.get("review_dify", {}).get("response_mode"),
+                    "REVIEW_DIFY_TEXT_INPUT_VARIABLE": integrations_payload.get("review_dify", {}).get("text_input_variable"),
+                    "REVIEW_DIFY_FILE_INPUT_VARIABLE": integrations_payload.get("review_dify", {}).get("file_input_variable"),
+                    "REVIEW_DIFY_ENABLE_TRACE": integrations_payload.get("review_dify", {}).get("enable_trace"),
+                    "REVIEW_DIFY_USER_PREFIX": integrations_payload.get("review_dify", {}).get("user_prefix"),
                 }
                 return {key: value for key, value in normalized_payload.items() if value is not None}
 
@@ -312,6 +334,13 @@ class Settings(BaseSettings):
         ).value
 
     @property
+    def resolved_review_dify_api_key(self) -> str | None:
+        return self.resolve_secret(
+            env_var="REVIEW_DIFY_API_KEY",
+            secret_name_var="REVIEW_DIFY_API_KEY_SECRET_NAME",
+        ).value
+
+    @property
     def resolved_graph_extraction_model_api_key(self) -> str | None:
         return self.resolve_secret(
             env_var="GRAPH_EXTRACTION_MODEL_API_KEY",
@@ -326,12 +355,30 @@ class Settings(BaseSettings):
             base_url=self.DIFY_BASE_URL,
             api_key=self.resolved_dify_api_key,
             timeout_seconds=self.DIFY_TIMEOUT_SECONDS,
+            app_mode=self.DIFY_APP_MODE,
             workflow_id=self.DIFY_WORKFLOW_ID,
             response_mode=self.DIFY_RESPONSE_MODE,
             text_input_variable=self.DIFY_TEXT_INPUT_VARIABLE,
             file_input_variable=self.DIFY_FILE_INPUT_VARIABLE,
             enable_trace=self.DIFY_ENABLE_TRACE,
             user_prefix=self.DIFY_USER_PREFIX,
+        )
+
+    @property
+    def review_dify_settings(self):
+        from app.integrations.dify.schemas import DifySettings
+
+        return DifySettings(
+            base_url=self.REVIEW_DIFY_BASE_URL,
+            api_key=self.resolved_review_dify_api_key,
+            timeout_seconds=self.REVIEW_DIFY_TIMEOUT,
+            app_mode=self.REVIEW_DIFY_APP_MODE,
+            workflow_id=self.REVIEW_DIFY_WORKFLOW_ID,
+            response_mode=self.REVIEW_DIFY_RESPONSE_MODE,
+            text_input_variable=self.REVIEW_DIFY_TEXT_INPUT_VARIABLE,
+            file_input_variable=self.REVIEW_DIFY_FILE_INPUT_VARIABLE,
+            enable_trace=self.REVIEW_DIFY_ENABLE_TRACE,
+            user_prefix=self.REVIEW_DIFY_USER_PREFIX,
         )
 
     def secret_status_summary(self) -> dict[str, dict[str, str | bool]]:
@@ -341,6 +388,7 @@ class Settings(BaseSettings):
             "ADMIN_AUTH_SECRET": ("ADMIN_AUTH_SECRET", "ADMIN_AUTH_SECRET_NAME"),
             "ADMIN_PASSWORD_HASH": ("ADMIN_PASSWORD_HASH", "ADMIN_PASSWORD_HASH_SECRET_NAME"),
             "DIFY_API_KEY": ("DIFY_API_KEY", "DIFY_API_KEY_SECRET_NAME"),
+            "REVIEW_DIFY_API_KEY": ("REVIEW_DIFY_API_KEY", "REVIEW_DIFY_API_KEY_SECRET_NAME"),
             "GRAPH_EXTRACTION_MODEL_API_KEY": (
                 "GRAPH_EXTRACTION_MODEL_API_KEY",
                 "GRAPH_EXTRACTION_MODEL_API_KEY_SECRET_NAME",
@@ -363,6 +411,12 @@ class Settings(BaseSettings):
     def is_dify_configured(self) -> bool:
         try:
             return bool(self.DIFY_BASE_URL and self.resolved_dify_api_key)
+        except SecretResolutionError:
+            return False
+
+    def is_review_dify_configured(self) -> bool:
+        try:
+            return bool(self.REVIEW_DIFY_BASE_URL and self.resolved_review_dify_api_key)
         except SecretResolutionError:
             return False
 
@@ -444,6 +498,7 @@ class Settings(BaseSettings):
             "graph_extraction_model_thinking_enabled": self.GRAPH_EXTRACTION_MODEL_THINKING_ENABLED,
             "graph_extraction_model_timeout_seconds": self.GRAPH_EXTRACTION_MODEL_TIMEOUT_SECONDS,
             "dify_configured": self.is_dify_configured(),
+            "review_dify_configured": self.is_review_dify_configured(),
             "admin_auth_configured": self.is_admin_auth_configured(),
             "paths": path_summary,
             "secrets": self.secret_status_summary(),
@@ -515,6 +570,14 @@ class Settings(BaseSettings):
         dify_values = [self.DIFY_BASE_URL, dify_api_key]
         if any(dify_values) and not all(dify_values):
             raise ValueError("DIFY_BASE_URL and DIFY_API_KEY must be provided together")
+
+        try:
+            review_dify_api_key = self.resolve_secret(
+                env_var="REVIEW_DIFY_API_KEY",
+                secret_name_var="REVIEW_DIFY_API_KEY_SECRET_NAME",
+            ).value
+        except SecretResolutionError as exc:
+            raise ValueError(str(exc)) from exc
 
         self.ensure_runtime_directories()
 
