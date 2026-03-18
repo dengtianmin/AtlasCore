@@ -3,6 +3,10 @@
 ## Azure App Service 最少检查项
 
 - 确认容器通过 `PORT` 监听。
+- `NEXT_PUBLIC_ATLASCORE_API_BASE_URL` 在 Azure 单容器部署里应保持为空，前端走同源 `/api/...`，再由 Next.js rewrite 转发到容器内的 `INTERNAL_API_BASE_URL`。
+- `INTERNAL_API_BASE_URL` 保持指向容器内后端，例如 `http://127.0.0.1:8000`。
+- 普通用户页面 `/chat`、`/graph`、`/review` 现在要求先登录；部署后需验证 `/login`、`/register` 与普通用户 cookie 链路可用。
+- 管理员后台继续使用独立的 `/admin/login` 与管理员 cookie，不与普通用户登录态混用。
 - 使用 `/health` 作为平台基础健康检查。
 - 使用 `/health/ready` 查看配置、SQLite、图模块、导入导出摘要。
 - 使用 `/api/admin/system/status` 查看管理员联调状态摘要。
@@ -34,3 +38,4 @@
 
 - `/health`：始终返回 `{"status":"ok"}`。
 - `/health/ready`：返回安全摘要，不包含 secret 明文。
+- `/users/register`、`/users/login`、`/users/me`：普通用户注册、登录与当前身份接口。

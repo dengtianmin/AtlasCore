@@ -11,13 +11,19 @@
 - AtlasCore 负责问答日志、反馈、CSV 导出、文档管理、图谱查询、图文件导入导出、图重载。
 - Dify 负责问答主链路和最终回答。
 - 图谱运行依赖本地 SQLite 图文件和 Python 图运行层。
+- 普通用户必须先注册/登录，才能访问聊天、图谱、评阅功能。
+- 管理员后台继续保留独立认证链路。
 
 ## 联调必查接口
 
 - `GET /health`
 - `GET /health/ready`
 - `GET /api/admin/system/status`
+- `POST /users/register`
+- `POST /users/login`
+- `GET /users/me`
 - `POST /chat/messages`
+- `POST /chat/messages/stream`
 - `POST /chat/messages/{message_id}/feedback`
 - `GET /graph/overview`
 - `GET /graph/nodes/{node_id}`
@@ -36,8 +42,24 @@
 ## 聊天链路
 
 - 请求流向：Frontend -> AtlasCore `/chat/messages` -> Dify -> AtlasCore -> Frontend
-- AtlasCore 会将 `question`、`retrieved_context`、`answer`、`session_id`、`source`、`provider_message_id`、`status`、`error_code` 写入 SQLite。
+- 流式请求流向：Frontend -> AtlasCore `/chat/messages/stream` -> Dify streaming -> AtlasCore SSE -> Frontend
+- AtlasCore 会将 `question`、`retrieved_context`、`answer`、`session_id`、`source`、`provider_message_id`、`status`、`error_code` 以及普通用户身份快照写入 SQLite。
 - 反馈通过 `/chat/messages/{message_id}/feedback` 写入 `feedback_records`。
+- 当前前端聊天页默认使用流式接口；`POST /chat/messages` 保留为阻塞式兼容接口。
+
+### 流式事件约定
+
+- AtlasCore 对前端输出 SSE，不直接裸透传 Dify 原始事件。
+- `start`：返回 `session_id`、`provider_message_id`、`workflow_run_id`
+- `delta`：返回当前文本增量 `text`
+- `end`：返回 `message_id`、`session_id`、`status`、`provider_message_id`、`workflow_run_id`、`created_at`
+- `error`：返回统一错误字段 `detail`
+
+### Dify 流式联调结论
+
+- 已验证 Dify 当前 Workflow 文本输入变量为 `query`
+- 已验证 Dify streaming 会返回 `ping`、`workflow_started`、`node_started`、`node_finished`、`text_chunk`、`workflow_finished`
+- Dify 很多事件只有 `data:` 行，事件名放在 JSON 的 `event` 字段内，AtlasCore 当前解析器已兼容该格式
 
 ## 图谱链路
 
@@ -64,6 +86,16 @@
 - `/health` 仅返回 `{"status":"ok"}`。
 - `/health/ready` 返回安全摘要，不泄漏 secret。
 - `/api/admin/system/status` 返回管理员联调所需状态，包括 Dify、SQLite、图模块、导入导出和实例级路径摘要。
+- 若聊天接口返回 `Chat integration is not configured`，优先检查 `DIFY_TEXT_INPUT_VARIABLE` 是否已配置，且是否与 Dify Workflow 的真实变量名一致。
+
+## 当前前端入口
+
+- `/login`：普通用户登录
+- `/register`：普通用户注册
+- `/chat`：普通用户登录后访问
+- `/graph`：普通用户登录后访问
+- `/review`：普通用户登录后访问
+- `/admin/login`：管理员登录
 
 ## 关键日志事件
 
@@ -71,6 +103,7 @@
 - `dify_request_started`
 - `dify_request_succeeded`
 - `dify_request_failed`
+- `dify_client_request`
 - `qa_log_written`
 - `feedback_written`
 - `graph_query_started`

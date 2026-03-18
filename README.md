@@ -105,6 +105,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 ```
 
@@ -133,6 +134,14 @@ curl -N -H "Content-Type: application/json" \
 ```
 
 普通用户联调前可先注册并登录，再访问 `/chat`、`/graph`、`/review`。
+
+前端本地运行：
+
+```bash
+cd /home/Project/AtlasCore/frontend
+npm install
+npm run dev
+```
 
 ## Azure 联调
 
