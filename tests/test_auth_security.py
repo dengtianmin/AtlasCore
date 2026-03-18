@@ -1,9 +1,12 @@
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
+from app.auth.dependencies import get_current_active_principal, get_current_active_user_principal
 from app.auth.jwt_handler import TokenDecodeError, create_access_token, decode_access_token
 from app.auth.password import hash_password, verify_password
+from app.auth.principal import Principal
 from app.core.config import settings
 
 
@@ -79,3 +82,37 @@ def test_test_environment_without_secret_rejected(monkeypatch):
             scope="admin",
             token_type="admin_access",
         )
+
+
+def test_user_scope_cannot_be_used_as_admin_token():
+    principal = Principal(
+        user_id=str(uuid4()),
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+    with pytest.raises(HTTPException, match="Admin token required") as exc_info:
+        get_current_active_principal(principal)
+
+    assert exc_info.value.status_code == 403
+
+
+def test_admin_scope_cannot_be_used_as_user_token():
+    principal = Principal(
+        user_id=str(uuid4()),
+        username="admin-user",
+        roles=["admin"],
+        role="admin",
+        scope="admin",
+        token_type="admin_access",
+    )
+
+    with pytest.raises(HTTPException, match="User token required") as exc_info:
+        get_current_active_user_principal(principal)
+
+    assert exc_info.value.status_code == 403

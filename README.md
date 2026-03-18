@@ -22,14 +22,18 @@ AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联
 
 ## 权限模型
 
-- 普通用户：无需登录，可访问 `/chat` 和 `/graph` 相关公开接口。
-- 管理员：需要认证，可访问后台、文档管理、CSV 导出、图 SQLite 导入导出、图重载、联调状态接口。
+- 普通用户：必须先注册并登录，登录后才能访问 `/chat`、`/graph`、`/review` 相关页面和接口。
+- 管理员：需要单独认证，可访问后台、文档管理、CSV 导出、图 SQLite 导入导出、图重载、联调状态接口。
+- 普通用户 token 与管理员 token 严格隔离，不能互相替代。
 
 ## 前端页面入口
 
-- `/`：默认跳转到 `/chat`。
-- `/chat`：聊天页面。
-- `/graph`：图谱页面。
+- `/`：默认跳转到 `/chat`，未登录时会被拦截到普通用户登录页。
+- `/login`：普通用户登录入口。
+- `/register`：普通用户注册入口。
+- `/chat`：聊天页面，需普通用户登录。
+- `/graph`：图谱页面，需普通用户登录。
+- `/review`：评阅页面，需普通用户登录。
 - `/admin/login`：管理员登录入口。
 - `/admin`：管理员后台首页。
 
@@ -37,6 +41,9 @@ AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联
 
 - `GET /health`
 - `GET /health/ready`
+- `POST /users/register`
+- `POST /users/login`
+- `GET /users/me`
 - `POST /chat/messages`
 - `POST /chat/messages/stream`
 - `POST /chat/messages/{message_id}/feedback`
@@ -124,6 +131,8 @@ curl -N -H "Content-Type: application/json" \
   -d '{"question":"你好","session_id":null}' \
   http://127.0.0.1:${PORT:-8000}/chat/messages/stream
 ```
+
+普通用户联调前可先注册并登录，再访问 `/chat`、`/graph`、`/review`。
 
 ## Azure 联调
 

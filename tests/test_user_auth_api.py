@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.v1.users import login, me, register
 from app.auth.principal import Principal
@@ -50,6 +51,18 @@ def test_register_duplicate_student_id_rejected(monkeypatch, tmp_path):
         assert exc.detail == "Student ID already registered"
     else:
         raise AssertionError("Expected duplicate student_id to be rejected")
+
+
+def test_register_validation_failure():
+    try:
+        UserRegisterRequest(student_id="abc", name="Tom", password="short")
+    except ValidationError as exc:
+        message = str(exc)
+        assert "student_id" in message
+        assert "name" in message
+        assert "password" in message
+    else:
+        raise AssertionError("Expected invalid registration payload to fail validation")
 
 
 def test_login_success_and_me_payload(monkeypatch, tmp_path):
