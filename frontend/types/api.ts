@@ -78,6 +78,13 @@ export interface AdminMe {
   roles: string[];
 }
 
+export interface UserMe {
+  user_id: string;
+  student_id: string;
+  name: string;
+  roles: string[];
+}
+
 export interface ChatResponse {
   message_id: string;
   session_id: string;
@@ -374,8 +381,15 @@ export interface AdminLogRecord {
   retrieved_context: string | null;
   answer: string;
   created_at: string;
+  user_id?: string | null;
+  student_id_snapshot?: string | null;
+  name_snapshot?: string | null;
   session_id: string | null;
   source: string;
+  status?: string;
+  provider_message_id?: string | null;
+  error_code?: string | null;
+  feedback_count?: number;
   feedback: LogFeedbackSummary | null;
 }
 

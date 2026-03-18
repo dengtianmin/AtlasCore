@@ -18,6 +18,7 @@ export function LogTable({
       <Table>
         <THead>
           <tr>
+            <TH>学生</TH>
             <TH>问题</TH>
             <TH>来源</TH>
             <TH>反馈</TH>
@@ -28,6 +29,12 @@ export function LogTable({
         <TBody>
           {items.map((item) => (
             <tr key={item.id}>
+              <TD>
+                <div className="space-y-1 text-xs">
+                  <p className="font-medium">{item.name_snapshot || "未记录"}</p>
+                  <p className="text-muted-foreground">{item.student_id_snapshot || "未记录"}</p>
+                </div>
+              </TD>
               <TD>
                 <div className="max-w-xl">
                   <p className="font-medium">{item.question}</p>

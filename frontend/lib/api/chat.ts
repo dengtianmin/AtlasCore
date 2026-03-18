@@ -5,7 +5,7 @@ export function sendChatMessage(payload: { question: string; session_id?: string
   return requestJson<ChatResponse>("/chat/messages", {
     method: "POST",
     body: payload,
-    token: ""
+    auth: "user"
   });
 }
 
@@ -16,7 +16,7 @@ export function submitChatFeedback(
   return requestJson<FeedbackResponse>(`/chat/messages/${messageId}/feedback`, {
     method: "POST",
     body: payload,
-    token: ""
+    auth: "user"
   });
 }
 
@@ -48,7 +48,7 @@ export async function streamChatMessage(
   await requestEventStream("/chat/messages/stream", {
     method: "POST",
     body: payload,
-    token: "",
+    auth: "user",
     onEvent: (event) => {
       const typedEvent = event as ChatStreamEvent;
       options.onEvent(typedEvent);

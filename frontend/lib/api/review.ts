@@ -4,6 +4,7 @@ import type { ReviewEvaluationResponse, ReviewRubric } from "@/types/api";
 export function evaluateReview(answerText: string) {
   return requestJson<ReviewEvaluationResponse>("/review/evaluate", {
     method: "POST",
+    auth: "user",
     body: { answer_text: answerText }
   });
 }

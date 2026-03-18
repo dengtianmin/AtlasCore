@@ -1,6 +1,7 @@
-import { getAdminToken } from "@/lib/auth/token";
+import { getAdminToken, getUserToken } from "@/lib/auth/token";
 
-const DEFAULT_API_BASE_URL = process.env.NEXT_PUBLIC_ATLASCORE_API_BASE_URL || "http://127.0.0.1:8000";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_ATLASCORE_API_BASE_URL?.trim();
+const DEFAULT_API_BASE_URL = configuredApiBaseUrl && configuredApiBaseUrl.length > 0 ? configuredApiBaseUrl : "";
 
 export class ApiError extends Error {
   status: number;
@@ -17,6 +18,7 @@ type RequestOptions = {
   method?: string;
   body?: BodyInit | object | null;
   token?: string;
+  auth?: "admin" | "user" | "none";
   headers?: HeadersInit;
 };
 
@@ -68,6 +70,22 @@ async function parseError(response: Response) {
   return response.statusText || "请求失败";
 }
 
+function resolveToken(options: RequestOptions) {
+  if (typeof options.token !== "undefined") {
+    return options.token;
+  }
+
+  if (options.auth === "none") {
+    return "";
+  }
+
+  if (options.auth === "user") {
+    return getUserToken();
+  }
+
+  return getAdminToken();
+}
+
 function parseEventBlock(block: string): StreamEvent | null {
   const lines = block.split(/\r?\n/);
   let eventName = "message";
@@ -95,7 +113,7 @@ function parseEventBlock(block: string): StreamEvent | null {
 }
 
 export async function requestJson<T>(path: string, options: RequestOptions = {}) {
-  const token = options.token ?? getAdminToken();
+  const token = resolveToken(options);
   const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: resolveHeaders(options.body, token, options.headers),
@@ -115,7 +133,7 @@ export async function requestJson<T>(path: string, options: RequestOptions = {})
 }
 
 export async function requestBlob(path: string, options: RequestOptions = {}) {
-  const token = options.token ?? getAdminToken();
+  const token = resolveToken(options);
   const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: resolveHeaders(options.body, token, options.headers),
@@ -131,7 +149,7 @@ export async function requestBlob(path: string, options: RequestOptions = {}) {
 }
 
 export async function requestEventStream(path: string, options: StreamRequestOptions) {
-  const token = options.token ?? getAdminToken();
+  const token = resolveToken(options);
   const response = await fetch(`${DEFAULT_API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: resolveHeaders(options.body, token, options.headers),

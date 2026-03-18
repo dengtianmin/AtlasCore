@@ -1,24 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { ADMIN_TOKEN_COOKIE } from "@/lib/auth/token";
+import { ADMIN_TOKEN_COOKIE, USER_TOKEN_COOKIE } from "@/lib/auth/token";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (!pathname.startsWith("/admin") || pathname.startsWith("/admin/login")) {
-    return NextResponse.next();
+  if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
+    const token = request.cookies.get(ADMIN_TOKEN_COOKIE)?.value;
+    if (token) {
+      return NextResponse.next();
+    }
+
+    const loginUrl = new URL("/admin/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  const token = request.cookies.get(ADMIN_TOKEN_COOKIE)?.value;
-  if (token) {
-    return NextResponse.next();
+  if (pathname === "/chat" || pathname === "/graph" || pathname === "/review") {
+    const token = request.cookies.get(USER_TOKEN_COOKIE)?.value;
+    if (token) {
+      return NextResponse.next();
+    }
+
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  const loginUrl = new URL("/admin/login", request.url);
-  loginUrl.searchParams.set("next", pathname);
-  return NextResponse.redirect(loginUrl);
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*"]
+  matcher: ["/admin/:path*", "/chat", "/graph", "/review"]
 };

@@ -71,6 +71,8 @@ export default function AdminLogsPage() {
                     <p className="mt-1 leading-7 text-muted-foreground">{selectedLog.answer}</p>
                   </div>
                   <div className="space-y-1 text-muted-foreground">
+                    <p>姓名：{selectedLog.name_snapshot || "未记录"}</p>
+                    <p>学号：{selectedLog.student_id_snapshot || "未记录"}</p>
                     <p>来源：{selectedLog.source}</p>
                     <p>时间：{formatDateTime(selectedLog.created_at)}</p>
                     <p>点赞：{selectedLog.feedback?.liked === null || selectedLog.feedback?.liked === undefined ? "未评价" : selectedLog.feedback.liked ? "是" : "否"}</p>

@@ -5,7 +5,7 @@ export function loginAdmin(payload: { username: string; password: string }) {
   return requestJson<AuthTokenResponse>("/auth/login", {
     method: "POST",
     body: payload,
-    token: ""
+    auth: "none"
   });
 }
 
