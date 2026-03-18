@@ -60,7 +60,8 @@ integrations:
     timeout_seconds: 30
     app_mode: workflow
     response_mode: blocking
-    text_input_variable: answer_text
+    text_input_variable: query
+    file_input_variable:
     user_prefix: review
   jwt:
     enabled: true

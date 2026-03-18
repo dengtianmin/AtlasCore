@@ -1,21 +1,23 @@
 # AtlasCore
 
-AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联调前端、Dify、Azure 后端、SQLite、轻量图模块与多实例本地图库机制”。
+AtlasCore 是一个 SQLite-first 的 FastAPI 后端，当前已完成聊天、图谱、管理员后台，以及“评阅接入独立 Review Dify + 结构化评阅消息”的联调。
 
 ## 第12步完成内容
 
 - 前端统一调用 AtlasCore API。
 - AtlasCore 内部调用 Dify 完成聊天主链路，前端不直接调用 Dify。
+- AtlasCore 内部调用独立 Review Dify 完成评阅主链路，前端评阅页不直接访问 Dify。
 - 聊天接口同时支持阻塞式返回和 SSE 流式返回，前端聊天页默认使用流式输出。
-- AtlasCore 将问答日志、反馈、文档元数据、导出记录写入业务 SQLite。
+- 评阅接口返回统一 `review_result` 结构，并将原始回包、标准化结果、用户身份快照写入评阅日志。
+- AtlasCore 将问答日志、评阅日志、反馈、文档元数据、导出记录写入业务 SQLite。
 - AtlasCore 通过 SQLite + Python 轻量图模块提供图谱接口。
-- AtlasCore 提供管理员 CSV 导出、图 SQLite 导入导出、图重载、文档同步与系统状态接口。
+- AtlasCore 提供管理员 CSV 导出、评阅配置/日志、图 SQLite 导入导出、图重载、文档同步与系统状态接口。
 - 多实例运行时，每个实例只使用自己的本地 `GRAPH_INSTANCE_LOCAL_PATH`，不共享同一个 SQLite 图文件。
 
 ## 联调边界
 
-- Dify 负责基础 RAG 问答主链路和最终答案生成。
-- AtlasCore 负责系统 API、聊天封装、日志、反馈、导出、文档管理、图谱接口、管理员能力。
+- Dify 负责基础 RAG 问答主链路、评阅 Workflow 和最终答案生成。
+- AtlasCore 负责系统 API、聊天封装、评阅标准化、日志、反馈、导出、文档管理、图谱接口、管理员能力。
 - 前端不直接访问 Dify。
 - 前端不直接访问底层图存储。
 - Neo4j / PostgreSQL 不是当前步骤的主依赖，`NEO4J_*` 仅保留为未来预留项。
@@ -44,14 +46,22 @@ AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联
 - `POST /users/register`
 - `POST /users/login`
 - `GET /users/me`
+- `POST /auth/login`
+- `GET /auth/me`
 - `POST /chat/messages`
 - `POST /chat/messages/stream`
 - `POST /chat/messages/{message_id}/feedback`
+- `POST /review/evaluate`
 - `GET /graph/summary`
 - `GET /graph/overview`
 - `GET /graph/nodes/{node_id}`
 - `GET /graph/nodes/{node_id}/neighbors`
 - `GET /graph/subgraph/{node_id}`
+- `GET /api/admin/review/config`
+- `PUT /api/admin/review/config`
+- `GET /api/admin/review/logs`
+- `GET /api/admin/review/logs/{record_id}`
+- `POST /api/admin/exports/review-logs`
 - `GET /api/admin/logs`
 - `GET /api/admin/logs/feedback`
 - `POST /api/admin/exports/qa-logs`
@@ -62,11 +72,11 @@ AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联
 - `POST /api/admin/graph/import`
 - `POST /api/admin/graph/reload`
 - `GET /api/admin/system/status`
-- `GET /admin/documents`
-- `POST /admin/documents/upload`
-- `DELETE /admin/documents/{document_id}`
-- `POST /admin/documents/{document_id}/graph-sync`
-- `POST /admin/documents/{document_id}/dify-sync`
+- `GET /api/admin/documents`
+- `POST /api/admin/documents/upload`
+- `DELETE /api/admin/documents/{document_id}`
+- `POST /api/admin/documents/{document_id}/graph-sync`
+- `POST /api/admin/documents/{document_id}/dify-sync`
 
 ## 关键环境变量
 
@@ -84,6 +94,16 @@ AtlasCore 是一个 SQLite-first 的 FastAPI 后端，已完成“第12步：联
 - `DIFY_TIMEOUT_SECONDS`
 - `DIFY_TEXT_INPUT_VARIABLE`
 - `DIFY_RESPONSE_MODE`
+- `REVIEW_DIFY_BASE_URL`
+- `REVIEW_DIFY_API_KEY`
+- `REVIEW_DIFY_APP_MODE`
+- `REVIEW_DIFY_WORKFLOW_ID`
+- `REVIEW_DIFY_RESPONSE_MODE`
+- `REVIEW_DIFY_TEXT_INPUT_VARIABLE`
+- `REVIEW_DIFY_FILE_INPUT_VARIABLE`
+- `REVIEW_DIFY_TIMEOUT`
+- `REVIEW_DIFY_ENABLE_TRACE`
+- `REVIEW_DIFY_USER_PREFIX`
 - `JWT_SECRET`
 - `INITIAL_ADMIN_USERNAME`
 - `INITIAL_ADMIN_PASSWORD`
@@ -118,6 +138,23 @@ export DIFY_TEXT_INPUT_VARIABLE=query
 export DIFY_RESPONSE_MODE=streaming
 ```
 
+评阅联调至少需要补齐：
+
+```bash
+export REVIEW_DIFY_BASE_URL=https://api.dify.ai
+export REVIEW_DIFY_API_KEY=your-review-dify-api-key
+export REVIEW_DIFY_APP_MODE=workflow
+export REVIEW_DIFY_RESPONSE_MODE=blocking
+export REVIEW_DIFY_TEXT_INPUT_VARIABLE=query
+export REVIEW_DIFY_TIMEOUT=300
+```
+
+说明：
+
+- `REVIEW_DIFY_BASE_URL` 推荐填写不带 `/v1` 的基础地址，代码运行时会做兼容归一化。
+- `REVIEW_DIFY_TEXT_INPUT_VARIABLE` 必须与评阅 Workflow 的真实文本变量名一致，当前推荐为 `query`。
+- 当前评阅已不再强依赖本地评分标准；评分标准可以完全内置在 Dify Workflow 中。
+
 前端联调前至少确认：
 
 ```bash
@@ -147,7 +184,9 @@ npm run dev
 
 - 确认容器监听 `PORT`。
 - 将业务 SQLite、图 SQLite、上传目录、导入导出目录挂到实例本地可写路径。
-- 配置 `DIFY_BASE_URL`、`DIFY_API_KEY`、`DIFY_TEXT_INPUT_VARIABLE`、`DIFY_RESPONSE_MODE`、管理员认证相关环境变量。
+- 配置聊天 Dify 和评阅 Dify 两组环境变量，不要混用：
+  - `DIFY_BASE_URL`、`DIFY_API_KEY`、`DIFY_TEXT_INPUT_VARIABLE`、`DIFY_RESPONSE_MODE`
+  - `REVIEW_DIFY_BASE_URL`、`REVIEW_DIFY_API_KEY`、`REVIEW_DIFY_TEXT_INPUT_VARIABLE`、`REVIEW_DIFY_RESPONSE_MODE`
 - 使用 `/health` 做平台基础健康检查。
 - 使用 `/health/ready` 和 `/api/admin/system/status` 做联调状态检查。
 - 不要让多个 Azure 实例共享同一份 `GRAPH_INSTANCE_LOCAL_PATH`。

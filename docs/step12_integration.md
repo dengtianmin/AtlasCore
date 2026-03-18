@@ -8,8 +8,9 @@
 
 - 前端统一调用 AtlasCore。
 - AtlasCore 统一封装 Dify 聊天调用。
-- AtlasCore 负责问答日志、反馈、CSV 导出、文档管理、图谱查询、图文件导入导出、图重载。
-- Dify 负责问答主链路和最终回答。
+- AtlasCore 统一封装评阅 Dify 调用与标准化解析。
+- AtlasCore 负责问答日志、评阅日志、反馈、CSV 导出、文档管理、图谱查询、图文件导入导出、图重载。
+- Dify 负责问答主链路、评阅 Workflow 和最终回答。
 - 图谱运行依赖本地 SQLite 图文件和 Python 图运行层。
 - 普通用户必须先注册/登录，才能访问聊天、图谱、评阅功能。
 - 管理员后台继续保留独立认证链路。
@@ -25,19 +26,24 @@
 - `POST /chat/messages`
 - `POST /chat/messages/stream`
 - `POST /chat/messages/{message_id}/feedback`
+- `POST /review/evaluate`
 - `GET /graph/overview`
 - `GET /graph/nodes/{node_id}`
 - `GET /graph/nodes/{node_id}/neighbors`
 - `GET /graph/subgraph/{node_id}`
+- `GET /api/admin/review/config`
+- `PUT /api/admin/review/config`
+- `GET /api/admin/review/logs`
+- `POST /api/admin/exports/review-logs`
 - `POST /api/admin/exports/qa-logs`
 - `POST /api/admin/exports/feedback`
 - `POST /api/admin/graph/export`
 - `POST /api/admin/graph/import`
 - `POST /api/admin/graph/reload`
-- `GET /admin/documents`
-- `POST /admin/documents/upload`
-- `POST /admin/documents/{document_id}/graph-sync`
-- `POST /admin/documents/{document_id}/dify-sync`
+- `GET /api/admin/documents`
+- `POST /api/admin/documents/upload`
+- `POST /api/admin/documents/{document_id}/graph-sync`
+- `POST /api/admin/documents/{document_id}/dify-sync`
 
 ## 聊天链路
 
@@ -60,6 +66,37 @@
 - 已验证 Dify 当前 Workflow 文本输入变量为 `query`
 - 已验证 Dify streaming 会返回 `ping`、`workflow_started`、`node_started`、`node_finished`、`text_chunk`、`workflow_finished`
 - Dify 很多事件只有 `data:` 行，事件名放在 JSON 的 `event` 字段内，AtlasCore 当前解析器已兼容该格式
+
+## 评阅链路
+
+- 请求流向：Frontend -> AtlasCore `/review/evaluate` -> Review Dify Workflow -> AtlasCore 标准化层 -> Frontend
+- 前端评阅页保持聊天式交互，但 AI 返回的是单条 `review_result` 富消息，而不是纯文本。
+- 后端不会把 Dify 原始回包直接透传给前端，而是统一归一化为：
+  - `score`
+  - `grade`
+  - `risk_level`
+  - `summary`
+  - `review_items`
+  - `key_issues`
+  - `deduction_logic`
+  - `raw_text`
+  - `parse_status`
+- 评阅日志会绑定普通用户身份快照，并保存原始回包与标准化结果。
+
+### 评阅联调要点
+
+- 聊天 Dify 与评阅 Dify 必须分开配置。
+- `REVIEW_DIFY_TEXT_INPUT_VARIABLE` 必须和评阅 Workflow 的真实文本变量名一致，当前推荐为 `query`。
+- 当前评阅已允许“评分标准完全内置在 Dify Workflow 中”，本地 rubric 可以为空。
+- 评阅 Workflow 的分组输出如 `Group1.output` 已在 AtlasCore 标准化层兼容。
+
+### 评阅管理员接口
+
+- `GET /api/admin/review/config`
+- `PUT /api/admin/review/config`
+- `GET /api/admin/review/logs`
+- `GET /api/admin/review/logs/{record_id}`
+- `POST /api/admin/exports/review-logs`
 
 ## 图谱链路
 
@@ -87,6 +124,7 @@
 - `/health/ready` 返回安全摘要，不泄漏 secret。
 - `/api/admin/system/status` 返回管理员联调所需状态，包括 Dify、SQLite、图模块、导入导出和实例级路径摘要。
 - 若聊天接口返回 `Chat integration is not configured`，优先检查 `DIFY_TEXT_INPUT_VARIABLE` 是否已配置，且是否与 Dify Workflow 的真实变量名一致。
+- 若评阅接口返回成功但前端无结构化结果，优先检查评阅日志中的 `parse_status`、`raw_output_keys` 与 `dify_text_input_variable`。
 
 ## 当前前端入口
 
@@ -118,6 +156,9 @@
 - `csv_export_started`
 - `csv_export_succeeded`
 - `csv_export_failed`
+- `review_evaluation_started`
+- `review_evaluation_completed`
+- `review_evaluation_failed`
 - `document_sync_started`
 - `document_sync_succeeded`
 - `document_sync_failed`
