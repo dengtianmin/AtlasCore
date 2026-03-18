@@ -52,6 +52,8 @@ class CsvExportService:
                         "retrieved_context",
                         "answer",
                         "created_at",
+                        "student_id",
+                        "name",
                         "session_id",
                         "source",
                         "status",
@@ -68,6 +70,8 @@ class CsvExportService:
                             "retrieved_context": record.retrieved_context or "",
                             "answer": record.answer,
                             "created_at": record.created_at.isoformat(),
+                            "student_id": record.student_id_snapshot or "",
+                            "name": record.name_snapshot or "",
                             "session_id": record.session_id or "",
                             "source": record.source,
                             "status": record.status,
@@ -164,12 +168,15 @@ class CsvExportService:
                         "rating",
                         "liked",
                         "comment",
+                        "student_id",
+                        "name",
                         "source",
                         "created_at",
                     ],
                 )
                 writer.writeheader()
                 for record in records:
+                    qa_log = self.qa_log_repo.get_by_id(db, record.qa_log_id)
                     writer.writerow(
                         {
                             "id": str(record.id),
@@ -177,6 +184,8 @@ class CsvExportService:
                             "rating": record.rating if record.rating is not None else "",
                             "liked": record.liked if record.liked is not None else "",
                             "comment": record.comment or "",
+                            "student_id": qa_log.student_id_snapshot if qa_log and qa_log.student_id_snapshot else "",
+                            "name": qa_log.name_snapshot if qa_log and qa_log.name_snapshot else "",
                             "source": record.source,
                             "created_at": record.created_at.isoformat(),
                         }

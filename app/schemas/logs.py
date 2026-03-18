@@ -19,6 +19,9 @@ class AdminLogRecordResponse(BaseModel):
     retrieved_context: str | None
     answer: str
     created_at: datetime
+    user_id: UUID | None = None
+    student_id_snapshot: str | None = None
+    name_snapshot: str | None = None
     session_id: str | None
     source: str
     status: str
@@ -35,6 +38,8 @@ class AdminLogListResponse(BaseModel):
 class FeedbackRecordResponse(BaseModel):
     id: UUID
     qa_log_id: UUID
+    student_id_snapshot: str | None = None
+    name_snapshot: str | None = None
     rating: int | None
     liked: bool | None
     comment: str | None

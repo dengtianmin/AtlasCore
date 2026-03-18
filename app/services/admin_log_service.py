@@ -68,4 +68,15 @@ class AdminLogService:
         return {**record, "feedback": latest_feedback, "feedback_count": len(feedback_items)}
 
     def list_feedback(self, db: Session, *, limit: int, offset: int) -> dict:
-        return self.feedback_service.list_all_feedback(db, limit=limit, offset=offset)
+        records = self.feedback_service.list_all_feedback(db, limit=limit, offset=offset)["items"]
+        enriched: list[dict] = []
+        for record in records:
+            qa_log = self.qa_log_service.get_log(db, record_id=record["qa_log_id"])
+            enriched.append(
+                {
+                    **record,
+                    "student_id_snapshot": qa_log["student_id_snapshot"] if qa_log else None,
+                    "name_snapshot": qa_log["name_snapshot"] if qa_log else None,
+                }
+            )
+        return {"items": enriched}

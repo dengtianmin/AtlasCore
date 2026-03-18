@@ -4,14 +4,14 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from app.api.v1.admin_exports import download_export, export_feedback, export_qa_logs, list_exports
-from app.api.v1.debug import create_feedback, create_qa_log
 from app.api.v1.root import root
+from app.api.v1.chat import send_message, service as chat_router_service, submit_feedback
 from app.auth.principal import Principal
 from app.core.config import settings
 from app.core.lifespan import lifespan
 from app.db.session import get_session_factory, reset_db_state
 from app.schemas.admin import ExportTriggerRequest
-from app.schemas.debug import FeedbackCreateRequest, QuestionAnswerLogCreateRequest
+from app.schemas.chat import ChatFeedbackRequest, ChatMessageRequest
 from app.services.runtime_status_service import runtime_status_service
 
 
@@ -42,19 +42,49 @@ def _admin_principal() -> Principal:
     return Principal(user_id="00000000-0000-0000-0000-000000000001", username="admin", roles=["admin"])
 
 
+def _user_principal() -> Principal:
+    return Principal(
+        user_id="11111111-1111-1111-1111-111111111111",
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+
+class StubDifyClient:
+    async def run_workflow(self, *, inputs, user, response_mode, trace_id=None):
+        question = next(iter(inputs.values()))
+        return type(
+            "WorkflowResult",
+            (),
+            {
+                "workflow_run_id": "run-1",
+                "task_id": "task-1",
+                "status": "succeeded",
+                "outputs": {"text": f"Answer: {question}"},
+                "elapsed_time": 0.5,
+                "total_tokens": 10,
+                "total_steps": 1,
+            },
+        )()
+
+
 def test_root_and_export_api_flow(monkeypatch, tmp_path):
     _bootstrap_runtime(monkeypatch, tmp_path)
     db = get_session_factory()()
     try:
-        create_qa_log(
-            QuestionAnswerLogCreateRequest(
-                question="What is AtlasCore?",
-                retrieved_context="AtlasCore is the Azure backend layer.",
-                answer="AtlasCore handles system-level backend capabilities.",
-                session_id="session-1",
-                source="dify",
-            ),
-            db=db,
+        monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "question")
+        monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient())
+        asyncio.run(
+            send_message(
+                ChatMessageRequest(question="What is AtlasCore?", session_id="session-1"),
+                principal=_user_principal(),
+                db=db,
+            )
         )
 
         root_before = root(db=db)
@@ -76,7 +106,10 @@ def test_root_and_export_api_flow(monkeypatch, tmp_path):
         response = download_export(export_payload.filename, _=_admin_principal())
         assert response.media_type == "text/csv"
         assert Path(response.path).exists()
-        assert "What is AtlasCore?" in Path(response.path).read_text(encoding="utf-8")
+        content = Path(response.path).read_text(encoding="utf-8")
+        assert "What is AtlasCore?" in content
+        assert "2025000001" in content
+        assert "张三" in content
         status = asyncio.run(runtime_status_service.get_status())
         assert status["last_csv_export"]["filename"] == export_payload.filename
         assert status["last_csv_export"]["status"] == "success"
@@ -91,19 +124,19 @@ def test_feedback_export_api_flow(monkeypatch, tmp_path):
     _bootstrap_runtime(monkeypatch, tmp_path)
     db = get_session_factory()()
     try:
-        log = create_qa_log(
-            QuestionAnswerLogCreateRequest(
-                question="What is AtlasCore?",
-                retrieved_context="AtlasCore is the Azure backend layer.",
-                answer="AtlasCore handles system-level backend capabilities.",
-                session_id="session-1",
-                source="dify",
-            ),
-            db=db,
+        monkeypatch.setattr(settings, "DIFY_TEXT_INPUT_VARIABLE", "question")
+        monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient())
+        log = asyncio.run(
+            send_message(
+                ChatMessageRequest(question="What is AtlasCore?", session_id="session-1"),
+                principal=_user_principal(),
+                db=db,
+            )
         )
-        create_feedback(
-            log.id,
-            payload=FeedbackCreateRequest(rating=5, liked=True, comment="good", source="web"),
+        submit_feedback(
+            log.message_id,
+            payload=ChatFeedbackRequest(rating=5, liked=True, comment="good", source="web"),
+            _=_user_principal(),
             db=db,
         )
 
@@ -120,6 +153,8 @@ def test_feedback_export_api_flow(monkeypatch, tmp_path):
         content = Path(response.path).read_text(encoding="utf-8")
         assert "qa_log_id" in content
         assert "good" in content
+        assert "2025000001" in content
+        assert "张三" in content
     finally:
         db.close()
 

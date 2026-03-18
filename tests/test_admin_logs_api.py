@@ -36,6 +36,19 @@ def _admin() -> Principal:
     return Principal(user_id="00000000-0000-0000-0000-000000000001", username="admin", roles=["admin"])
 
 
+def _user() -> Principal:
+    return Principal(
+        user_id="11111111-1111-1111-1111-111111111111",
+        username="2025000001",
+        student_id="2025000001",
+        name="张三",
+        roles=["user"],
+        role="user",
+        scope="user",
+        token_type="user_access",
+    )
+
+
 class StubDifyClient:
     async def run_workflow(self, *, inputs, user, response_mode, trace_id=None):
         question = next(iter(inputs.values()))
@@ -60,11 +73,12 @@ def test_admin_logs_list_and_detail(monkeypatch, tmp_path):
     monkeypatch.setattr(chat_router_service, "dify_client", StubDifyClient())
     db = get_session_factory()()
     try:
-        first = asyncio.run(send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id="s-1"), db=db))
-        second = asyncio.run(send_message(ChatMessageRequest(question="图谱接口做什么？", session_id="s-2"), db=db))
+        first = asyncio.run(send_message(ChatMessageRequest(question="AtlasCore 是什么？", session_id="s-1"), principal=_user(), db=db))
+        second = asyncio.run(send_message(ChatMessageRequest(question="图谱接口做什么？", session_id="s-2"), principal=_user(), db=db))
         submit_feedback(
             first.message_id,
             ChatFeedbackRequest(rating=4, liked=True, comment="不错", source="web"),
+            _=_user(),
             db=db,
         )
 
@@ -85,11 +99,15 @@ def test_admin_logs_list_and_detail(monkeypatch, tmp_path):
         assert listed.items[0].feedback is not None
         assert listed.items[0].feedback.liked is True
         assert listed.items[0].feedback_count == 1
+        assert listed.items[0].student_id_snapshot == "2025000001"
+        assert listed.items[0].name_snapshot == "张三"
 
         detail = get_log(first.message_id, _=_admin(), db=db)
         assert detail.id == first.message_id
         assert detail.feedback is not None
         assert detail.feedback_count == 1
+        assert detail.student_id_snapshot == "2025000001"
+        assert detail.name_snapshot == "张三"
 
         no_match = list_logs(
             _=_admin(),
