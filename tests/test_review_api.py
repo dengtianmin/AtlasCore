@@ -83,9 +83,13 @@ def test_get_and_update_review_dify_config(monkeypatch, tmp_path):
     initial = get_review_dify_config(_=_admin())
     assert initial.enabled is True
     assert initial.app_mode == "workflow"
+    assert initial.base_url == "https://review-dify.example.com"
+    assert initial.has_api_key is True
 
     updated = update_review_dify_config(
         ReviewDifyConfigUpdateRequest(
+            base_url="https://override-review-dify.example.com",
+            api_key="override-secret",
             app_mode="chat",
             response_mode="blocking",
             timeout_seconds=45,
@@ -100,6 +104,8 @@ def test_get_and_update_review_dify_config(monkeypatch, tmp_path):
     assert updated.app_mode == "chat"
     assert updated.timeout_seconds == 45
     assert updated.text_input_variable == "query"
+    assert updated.base_url == "https://override-review-dify.example.com"
+    assert updated.has_api_key is True
 
 
 def test_evaluate_review_returns_controlled_error_without_rubric(monkeypatch, tmp_path):

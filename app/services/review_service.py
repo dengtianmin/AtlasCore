@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+import base64
+import hashlib
 import json
 import re
 
@@ -34,6 +36,7 @@ class ReviewService:
     def __init__(self) -> None:
         self.rubric_repo = ReviewRubricSettingRepository()
         self.review_dify_repo = ReviewDifySettingRepository()
+        self.secret_box = _LocalSecretBox()
 
     def get_rubric(self, db: Session) -> dict:
         setting = self.rubric_repo.get_active(db)
@@ -57,6 +60,8 @@ class ReviewService:
         resolved = self._resolve_review_dify_settings(db)
         return {
             "enabled": resolved.enabled,
+            "base_url": resolved.base_url,
+            "has_api_key": bool(resolved.api_key),
             "app_mode": resolved.app_mode,
             "response_mode": resolved.response_mode,
             "timeout_seconds": resolved.timeout_seconds,
@@ -68,7 +73,13 @@ class ReviewService:
         }
 
     def update_review_dify_config(self, db: Session, *, payload: dict, operator: str) -> dict:
+        current = self.review_dify_repo.get_active(db)
+        api_key_ciphertext = current.api_key_ciphertext if current else None
+        if payload.get("api_key"):
+            api_key_ciphertext = self.secret_box.encrypt(payload["api_key"].strip())
         setting = ReviewDifySetting(
+            base_url=(payload.get("base_url") or "").strip() or None,
+            api_key_ciphertext=api_key_ciphertext,
             app_mode=payload["app_mode"],
             response_mode=payload["response_mode"],
             timeout_seconds=payload["timeout_seconds"],
@@ -202,6 +213,10 @@ class ReviewService:
         base = settings.review_dify_settings.model_copy()
         runtime = self.review_dify_repo.get_active(db)
         if runtime:
+            if runtime.base_url:
+                base.base_url = runtime.base_url
+            if runtime.api_key_ciphertext:
+                base.api_key = self.secret_box.decrypt(runtime.api_key_ciphertext)
             base.app_mode = runtime.app_mode
             base.response_mode = runtime.response_mode
             base.timeout_seconds = runtime.timeout_seconds
@@ -478,6 +493,23 @@ class ReviewService:
             workflow_run_id=None,
             provider_message_id=None,
         )
+
+class _LocalSecretBox:
+    def __init__(self) -> None:
+        seed = settings.JWT_SECRET or settings.ADMIN_AUTH_SECRET or "atlascore-review-dify-key"
+        self._key = hashlib.sha256(seed.encode("utf-8")).digest()
+
+    def encrypt(self, value: str) -> str:
+        raw = value.encode("utf-8")
+        cipher = bytes(byte ^ self._key[index % len(self._key)] for index, byte in enumerate(raw))
+        return base64.b64encode(cipher).decode("ascii")
+
+    def decrypt(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        raw = base64.b64decode(value.encode("ascii"))
+        plain = bytes(byte ^ self._key[index % len(self._key)] for index, byte in enumerate(raw))
+        return plain.decode("utf-8")
 
 
 review_service = ReviewService()

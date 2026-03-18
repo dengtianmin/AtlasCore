@@ -10,8 +10,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { getReviewDifyConfig, getReviewRubric, updateReviewDifyConfig, updateReviewRubric } from "@/lib/api/review";
+import { getReviewDifyConfig, getReviewRubric, updateReviewDifyConfig } from "@/lib/api/review";
 import { formatDateTime } from "@/lib/utils";
 
 export default function AdminReviewRubricPage() {
@@ -25,8 +24,9 @@ export default function AdminReviewRubricPage() {
     queryFn: getReviewDifyConfig
   });
 
-  const [draft, setDraft] = useState("");
   const [configForm, setConfigForm] = useState({
+    base_url: "",
+    api_key: "",
     app_mode: "workflow" as "workflow" | "chat",
     response_mode: "blocking" as "blocking" | "streaming",
     timeout_seconds: 30,
@@ -37,30 +37,19 @@ export default function AdminReviewRubricPage() {
     user_prefix: "review"
   });
 
-  const updateMutation = useMutation({
-    mutationFn: updateReviewRubric,
-    onSuccess: async (payload) => {
-      setDraft(payload.rubric_text);
-      await queryClient.invalidateQueries({ queryKey: ["review-rubric"] });
-    }
-  });
-
   const configMutation = useMutation({
     mutationFn: updateReviewDifyConfig,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["review-dify-config"] });
+      setConfigForm((current) => ({ ...current, api_key: "" }));
     }
   });
 
   useEffect(() => {
-    if (rubricQuery.data) {
-      setDraft(rubricQuery.data.rubric_text);
-    }
-  }, [rubricQuery.data]);
-
-  useEffect(() => {
     if (configQuery.data) {
       setConfigForm({
+        base_url: configQuery.data.base_url ?? "",
+        api_key: "",
         app_mode: configQuery.data.app_mode,
         response_mode: configQuery.data.response_mode,
         timeout_seconds: configQuery.data.timeout_seconds,
@@ -73,15 +62,12 @@ export default function AdminReviewRubricPage() {
     }
   }, [configQuery.data]);
 
-  const submitRubric = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    updateMutation.mutate(draft.trim());
-  };
-
   const submitConfig = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     configMutation.mutate({
       ...configForm,
+      base_url: configForm.base_url.trim() || null,
+      api_key: configForm.api_key.trim() || null,
       workflow_id: configForm.workflow_id.trim() || null,
       text_input_variable: configForm.text_input_variable.trim() || null,
       file_input_variable: configForm.file_input_variable.trim() || null
@@ -110,7 +96,7 @@ export default function AdminReviewRubricPage() {
     <div className="space-y-6">
       <PageHeader
         title="评阅配置"
-        description="这里管理评阅标准与评阅 Dify 的非敏感运行参数。API Key 与 Base URL 仍应优先通过环境变量配置。"
+        description="这里管理评阅 Dify 运行参数。若服务端已经用环境变量注入，页面中的 Base URL 和 API Key 也可以作为后台覆盖配置使用。"
         actions={
           <Link
             href="/admin/review/logs"
@@ -130,7 +116,7 @@ export default function AdminReviewRubricPage() {
             <p>当前状态：{rubric.is_active ? "已生效" : "未配置"}</p>
             <p>最近更新时间：{formatDateTime(rubric.updated_at)}</p>
             <p>最近更新人：{rubric.updated_by ?? "未记录"}</p>
-            {updateMutation.isSuccess ? <p className="text-emerald-600">评分标准已保存。</p> : null}
+            <p>评分标准编辑已从当前页面移除。</p>
           </CardContent>
         </Card>
 
@@ -143,25 +129,12 @@ export default function AdminReviewRubricPage() {
             <p>模式：{config?.app_mode}</p>
             <p>响应模式：{config?.response_mode}</p>
             <p>超时：{config?.timeout_seconds} 秒</p>
+            <p>Base URL：{config?.base_url ?? "未配置"}</p>
+            <p>API Key：{config?.has_api_key ? "已配置" : "未配置"}</p>
             <p>Workflow ID：{config?.workflow_id_configured ? "已配置" : "未配置"}</p>
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>编辑评分标准</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={submitRubric}>
-            <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-[260px]" />
-            {updateMutation.isError ? <ErrorState message={(updateMutation.error as Error).message} /> : null}
-            <Button type="submit" disabled={!draft.trim() || updateMutation.isPending}>
-              {updateMutation.isPending ? "保存中..." : "保存评分标准"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -170,6 +143,23 @@ export default function AdminReviewRubricPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={submitConfig}>
             <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium">REVIEW_DIFY_BASE_URL</label>
+                <Input
+                  placeholder="https://api.dify.ai"
+                  value={configForm.base_url}
+                  onChange={(event) => setConfigForm((current) => ({ ...current, base_url: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium">REVIEW_DIFY_API_KEY</label>
+                <Input
+                  type="password"
+                  placeholder={config?.has_api_key ? "已配置，留空则保持不变" : "app-..."}
+                  value={configForm.api_key}
+                  onChange={(event) => setConfigForm((current) => ({ ...current, api_key: event.target.value }))}
+                />
+              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">模式</label>
                 <select
@@ -214,6 +204,7 @@ export default function AdminReviewRubricPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">文本变量名</label>
                 <Input
+                  placeholder="REVIEW_DIFY_TEXT_INPUT_VARIABLE"
                   value={configForm.text_input_variable}
                   onChange={(event) => setConfigForm((current) => ({ ...current, text_input_variable: event.target.value }))}
                 />
@@ -221,6 +212,7 @@ export default function AdminReviewRubricPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">文件变量名</label>
                 <Input
+                  placeholder="REVIEW_DIFY_FILE_INPUT_VARIABLE"
                   value={configForm.file_input_variable}
                   onChange={(event) => setConfigForm((current) => ({ ...current, file_input_variable: event.target.value }))}
                 />

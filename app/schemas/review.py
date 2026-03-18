@@ -68,6 +68,8 @@ class ReviewEvaluationResponse(ReviewResultData):
 
 class ReviewDifyConfigSummaryResponse(BaseModel):
     enabled: bool
+    base_url: str | None = None
+    has_api_key: bool = False
     app_mode: str
     response_mode: str
     timeout_seconds: float
@@ -79,6 +81,8 @@ class ReviewDifyConfigSummaryResponse(BaseModel):
 
 
 class ReviewDifyConfigUpdateRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=1000)
+    api_key: str | None = Field(default=None, max_length=2000)
     app_mode: str = Field(pattern="^(workflow|chat)$")
     response_mode: str = Field(pattern="^(blocking|streaming)$")
     timeout_seconds: float = Field(gt=0, le=300)

@@ -390,6 +390,8 @@ export interface ReviewEvaluationResponse {
 
 export interface ReviewDifyConfigSummary {
   enabled: boolean;
+  base_url: string | null;
+  has_api_key: boolean;
   app_mode: "workflow" | "chat";
   response_mode: "blocking" | "streaming";
   timeout_seconds: number;
@@ -401,6 +403,8 @@ export interface ReviewDifyConfigSummary {
 }
 
 export interface ReviewDifyConfigUpdateRequest {
+  base_url?: string | null;
+  api_key?: string | null;
   app_mode: "workflow" | "chat";
   response_mode: "blocking" | "streaming";
   timeout_seconds: number;
